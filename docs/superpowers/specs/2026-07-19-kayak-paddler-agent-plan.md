@@ -2,11 +2,11 @@
 
 **Date:** 2026-07-19
 **Target:** ClickHouse × Trigger.dev AI Hackathon 2026 (build window July 17–23, submission deadline July 23 midnight AoE)
-**Working name:** RiverGuide (product name used in code/UI below; rename allowed at any point before submission)
+**Working name:** KayakGuide (product name used in code/UI below; rename allowed at any point before submission)
 
 ## 1. Summary
 
-RiverGuide is a chat agent for Hudson River paddlers. It answers planning questions ("Can I paddle Sunday morning with a beginner?") with traffic-light safety verdicts, visual paddle-window timelines, and agent-built dashboards — every claim grounded in 16 years of historical USGS/NOAA data stored in ClickHouse. It understands what actually makes the Hudson dangerous (wind against current), knows the local geography (Hoboken Cove, the ferry lanes, Pier 40), and plans tide-assisted round trips. It also *acts*: it logs trips, schedules condition watches that re-check the forecast before a planned trip, emails the user if the outlook degrades, and posts follow-ups back into the chat thread.
+KayakGuide is a chat agent for Hudson River paddlers. It answers planning questions ("Can I paddle Sunday morning with a beginner?") with traffic-light safety verdicts, visual paddle-window timelines, and agent-built dashboards — every claim grounded in 16 years of historical USGS/NOAA data stored in ClickHouse. It understands what actually makes the Hudson dangerous (wind against current), knows the local geography (Hoboken Cove, the ferry lanes, Pier 40), and plans tide-assisted round trips. It also *acts*: it logs trips, schedules condition watches that re-check the forecast before a planned trip, emails the user if the outlook degrades, and posts follow-ups back into the chat thread.
 
 It is the chat-agent evolution of HudsonFlow (existing Next.js dashboard at `/Users/hk/Desktop/0719/HudsonRiver`), reusing its domain knowledge (data sources, safety thresholds, plain-language philosophy) in a fresh repo.
 
@@ -24,7 +24,7 @@ It is the chat-agent evolution of HudsonFlow (existing Next.js dashboard at `/Us
    NOAA API ──┘     │  • backfill-historical (1x) │      • readings      (OLAP time-series)
                     │  • ingest-live (cron 15min) │      • predictions   (tides/currents, 7d ahead)
                     │  • refresh-predictions (6h) │      • trips         (OLTP: user logs)
-                    │  • river-guide chat.agent() │      • watches       (planned-trip monitors)
+                    │  • kayak-guide chat.agent() │      • watches       (planned-trip monitors)
                     │  • watch-trip (delayed runs)│
                     └─────────────┬───────────────┘
                                   │ TriggerChatTransport        ┌──► Resend email alerts
@@ -115,7 +115,7 @@ Backfill scope: **2010 → present** (~16 years) of 15-minute USGS instantaneous
 | `backfill-historical` | one-off | Chunked by (station, parameter, year), 2010 → present; each chunk fetches, parses, inserts; per-chunk retry. Idempotent via ReplacingMergeTree. |
 | `ingest-live` | cron `*/15 * * * *` | Latest USGS readings + NOAA observations (water levels, currents, Robbins Reef wind) → `readings`. |
 | `refresh-predictions` | cron `0 */6 * * *` | Next 7 days of NOAA tide + current predictions → `predictions`. |
-| `river-guide` | `chat.agent()` | The conversation agent (Section 6). |
+| `kayak-guide` | `chat.agent()` | The conversation agent (Section 6). |
 | `watch-trip` | delayed runs | Triggered by `schedule_watch` tool. Wakes at T-24h and T-3h before `trip_time` (checkpoints already in the past are skipped; if the trip is < 3h away, one immediate check runs instead); re-runs safety assessment; if verdict changed (degraded or improved): send Resend email + inject follow-up message into the originating chat thread (`chat_id`); update `watches.status`. |
 
 ## 6. The Agent
@@ -176,7 +176,7 @@ Single-page Next.js app, dark theme (water-blue accents from HudsonFlow's palett
 
 ## 8. Demo Video Script (max 5 min)
 
-1. **Story** (30s): HCCB kayaker; USGS/NOAA data too technical; meet RiverGuide.
+1. **Story** (30s): HCCB kayaker; USGS/NOAA data too technical; meet KayakGuide.
 2. **"Can I paddle Sunday with a beginner?"** (60s): verdict card → window timeline → historical grounding ("92nd percentile July discharge") → agent offers a watch.
 3. **Accept the watch** (45s): Trigger.dev dashboard shows the delayed `watch-trip` run; Resend email arrives; follow-up message appears in-thread (pre-staged with a short delay for filming).
 4. **"Show me Hurricane Sandy at the Battery"** (45s): agent queries Oct 2012 from 16 years of backfill, renders the ~9 ft surge spike as a dashboard — historical drama + ClickHouse scanning years in milliseconds.
