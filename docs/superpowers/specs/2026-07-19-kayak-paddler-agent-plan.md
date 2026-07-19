@@ -1,8 +1,8 @@
-# RiverGuide — Design Doc
+# Kayak/Paddler Agent — Design & Plan
 
 **Date:** 2026-07-19
 **Target:** ClickHouse × Trigger.dev AI Hackathon 2026 (build window July 17–23, submission deadline July 23 midnight AoE)
-**Working name:** RiverGuide (rename allowed at any point before submission)
+**Working name:** RiverGuide (product name used in code/UI below; rename allowed at any point before submission)
 
 ## 1. Summary
 
