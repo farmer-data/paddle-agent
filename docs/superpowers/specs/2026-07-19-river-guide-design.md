@@ -103,7 +103,7 @@ Backfill scope: ~10 years of 15-minute USGS instantaneous values for both statio
 | `ingest-live` | cron `*/15 * * * *` | Latest USGS readings + NOAA observations → `readings`. |
 | `refresh-predictions` | cron `0 */6 * * *` | Next 7 days of NOAA tide + current predictions → `predictions`. |
 | `river-guide` | `chat.agent()` | The conversation agent (Section 6). |
-| `watch-trip` | delayed runs | Triggered by `schedule_watch` tool. Wakes at T-24h and T-3h before `trip_time`; re-runs safety assessment; if verdict changed (degraded or improved): send Resend email + inject follow-up message into the originating chat thread (`chat_id`); update `watches.status`. |
+| `watch-trip` | delayed runs | Triggered by `schedule_watch` tool. Wakes at T-24h and T-3h before `trip_time` (checkpoints already in the past are skipped; if the trip is < 3h away, one immediate check runs instead); re-runs safety assessment; if verdict changed (degraded or improved): send Resend email + inject follow-up message into the originating chat thread (`chat_id`); update `watches.status`. |
 
 ## 6. The Agent
 
