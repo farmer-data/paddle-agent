@@ -196,15 +196,15 @@ Single-page Next.js app, dark theme (water-blue accents from HudsonFlow's palett
 
 | Day | Deliverable |
 |-----|-------------|
-| Jul 20 | Repo scaffold; ClickHouse Cloud provisioned; schema created; `ingest-live` (incl. wind) + `refresh-predictions` running; 2010+ backfill started; `waypoints` seeded |
-| Jul 21 | Agent with data tools + verdict/windows parts (wind-aware); `plan_round_trip`; basic chat UI rendering all part types |
-| Jul 22 | `render_dashboard` + generic renderer; NWS forecast wind in windows/watches; trip logging; `watch-trip` + Resend + in-thread follow-up |
+| Jul 20 | Repo scaffold; ClickHouse Cloud provisioned; schema created; `ingest-live` (incl. Robbins Reef wind) + `refresh-predictions` running; **NWS forecast client built and tested**; wind-aware safety-verdict function (the three-band + opposing-current rule) done with unit tests; 2010+ backfill started; `waypoints` seeded |
+| Jul 21 | Agent with data tools + verdict/windows parts — wind in every verdict and window from the first working version; `plan_round_trip`; basic chat UI rendering all part types |
+| Jul 22 | `render_dashboard` + generic renderer; trip logging; `watch-trip` (uses the same wind-aware verdict) + Resend + in-thread follow-up |
 | Jul 23 | Polish, Sandy-replay dry run, seed demo data, record video, write README, submit |
 
 ## 11. Out of Scope
 
 - Nationwide station coverage (stretch only if everything lands early)
 - Auth, user accounts, mobile app, PWA
-- Precipitation/temperature forecasts (wind is in scope; the rest of weather is not)
+- Precipitation/temperature forecasts (wind is core day-1 scope — observations and forecasts; the rest of weather is not)
 - Educational lessons/quizzes from HudsonFlow
 - Storm-surge residual signal and moon-phase/spring-neap narration (nice-to-haves; add only if milestones land early)
