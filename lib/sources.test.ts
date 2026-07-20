@@ -25,7 +25,7 @@ it("maps signed Velocity_Major to ebb/flood magnitude", async () => {
 });
 
 it("requests the NYH1927 station with a compact date range and interval=60", async () => {
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ current_predictions: { cp: [] } }), { status: 200 }));
+  const fetchMock = vi.fn(async (..._args: unknown[]) => new Response(JSON.stringify({ current_predictions: { cp: [] } }), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
 
   await fetchCurrentPredictions("2026-07-26");
