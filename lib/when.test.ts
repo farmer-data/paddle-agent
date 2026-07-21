@@ -42,4 +42,15 @@ describe("resolveWindow", () => {
   it("treats bare 'today' as now (rolling 12h)", () => {
     expect(resolveWindow("can I go out today", TUE_9AM).isNow).toBe(true);
   });
+
+  it("does not let the tidal-current noun 'current' override a daypart", () => {
+    // "current" must not be read as "now" when the question names an evening window.
+    const w = resolveWindow("How's the current this evening?", TUE_9AM);
+    expect(w).toMatchObject({ isNow: false, startHour: 17, endHour: 20, label: "today evening" });
+  });
+
+  it("still resolves an explicit future day when 'current' appears", () => {
+    const w = resolveWindow("what's the current doing Sunday morning?", TUE_9AM);
+    expect(w).toMatchObject({ isNow: false, date: "2026-07-26", startHour: 6, endHour: 11 });
+  });
 });

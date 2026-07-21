@@ -55,8 +55,10 @@ export function resolveWindow(question: string, now: Date = new Date()): TargetW
     }
   }
 
-  const explicitNow = /\b(now|right now|current|currently|at the moment)\b/.test(q);
-  const isNow = explicitNow || (offset === null && !daypart) || (dayLabel === "today" && !daypart);
+  // A named daypart or day always wins over "now": otherwise "how's the current this
+  // evening?" reads the tidal-current noun as "now" and ignores the evening window.
+  // With no daypart and no future day (or a bare "today"), fall back to the rolling 12h.
+  const isNow = !daypart && (offset === null || dayLabel === "today");
 
   if (isNow) {
     return { label: "the next 12 hours", date: toDateStr(now), startHour: now.getHours(), endHour: now.getHours(), isNow: true };
