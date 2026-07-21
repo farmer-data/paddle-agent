@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bar, BarChart, Cell, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { HourlyRisk, PaddleWindow } from "@/lib/windows";
+import { Area, AreaChart, Bar, BarChart, Cell, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { CurrentSummary, HourlyRisk, PaddleWindow } from "@/lib/windows";
 
 type Condition = { parameter: string; value: number; ts: string };
 type Risk = "safe" | "caution" | "danger";
@@ -16,7 +16,8 @@ type ReplyCard = {
   action: { label: string; hccb: boolean };
 };
 type Forecast = { label: string; isNow: boolean; verdict: Risk | null; opposingWind: boolean };
-type Message = { role: "user" | "assistant"; text: string; pending?: boolean; card?: ReplyCard | null; verdict?: Risk | null; hourly?: HourlyRisk[]; window?: PaddleWindow | null; forecast?: Forecast | null };
+type CurrentInfo = { nowSigned: number | null; summary: CurrentSummary; caption: string };
+type Message = { role: "user" | "assistant"; text: string; pending?: boolean; card?: ReplyCard | null; verdict?: Risk | null; hourly?: HourlyRisk[]; window?: PaddleWindow | null; forecast?: Forecast | null; current?: CurrentInfo | null };
 
 const HCCB_URL = "https://sites.google.com/hobokencoveboathouse.org/hccb/home";
 
@@ -164,7 +165,56 @@ function PaddleTimeline({ hourly, window, title }: { hourly: HourlyRisk[]; windo
   );
 }
 
-function CardReply({ card, verdict, hourly, window, windowLabel, onAsk }: { card: ReplyCard; verdict?: Risk | null; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; onAsk: (q: string) => void }) {
+const EBB = "var(--cyan)";
+const FLOOD = "var(--go)";
+
+function CurrentTimeline({ hourly, current, title }: { hourly: HourlyRisk[]; current: CurrentInfo; title?: string }) {
+  const data = hourly.map((h) => ({
+    hourLabel: h.hourLabel,
+    ebb: h.current != null && h.current < 0 ? h.current : 0,
+    flood: h.current != null && h.current > 0 ? h.current : 0,
+    signed: h.current,
+  }));
+  const max = Math.max(0.5, ...data.map((d) => Math.abs(d.signed ?? 0)));
+  const { nextTurn, peakEbb, peakFlood } = current.summary;
+  return (
+    <div className="timeline current-timeline">
+      <div className="timeline-head">
+        <h4>{title ? `${title} · current` : "Current now"}</h4>
+        {nextTurn && (
+          <span className="window-chip" style={{ "--risk-color": nextTurn.toPhase === "ebb" ? EBB : FLOOD } as React.CSSProperties}>
+            Turns {nextTurn.toPhase} {nextTurn.atLabel}
+          </span>
+        )}
+      </div>
+      <ResponsiveContainer width="100%" height={120}>
+        <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+          <ReferenceLine y={0} stroke="var(--line-strong)" strokeOpacity={0.7} />
+          <XAxis dataKey="hourLabel" tickLine={false} axisLine={false} interval={1} tick={{ fill: "var(--faint)", fontSize: 10, fontFamily: "var(--mono)" }} />
+          <YAxis width={26} domain={[-max, max]} tickLine={false} axisLine={false} tick={{ fill: "var(--faint)", fontSize: 10, fontFamily: "var(--mono)" }} tickFormatter={(v: number) => Math.abs(v).toFixed(1)} />
+          <Tooltip cursor={{ stroke: "var(--line-strong)" }} contentStyle={{ background: "var(--deep)", border: "1px solid var(--line-strong)", borderRadius: 10, fontSize: 12 }}
+            labelStyle={{ color: "var(--muted)" }} itemStyle={{ color: "var(--text)" }}
+            formatter={(_v, _n, item) => { const s = (item?.payload as { signed: number | null } | undefined)?.signed; return [s == null ? "—" : `${Math.abs(s).toFixed(2)} kn ${s < 0 ? "ebb" : "flood"}`, "current"]; }} />
+          <Area dataKey="flood" type="monotone" stroke={FLOOD} fill={FLOOD} fillOpacity={0.22} isAnimationActive={false} />
+          <Area dataKey="ebb" type="monotone" stroke={EBB} fill={EBB} fillOpacity={0.22} isAnimationActive={false} />
+          {current.nowSigned != null && data.length > 0 && (
+            <ReferenceDot x={data[0].hourLabel} y={current.nowSigned} r={4} fill={current.nowSigned < 0 ? EBB : FLOOD} stroke="white" strokeWidth={1.5} />
+          )}
+        </AreaChart>
+      </ResponsiveContainer>
+      {(peakEbb || peakFlood) && (
+        <p className="tide-peaks">
+          {peakEbb && <span style={{ color: EBB }}>▼ ebb {peakEbb.knots.toFixed(1)} {peakEbb.atLabel}</span>}
+          {peakEbb && peakFlood && <span className="tide-dot"> · </span>}
+          {peakFlood && <span style={{ color: FLOOD }}>▲ flood {peakFlood.knots.toFixed(1)} {peakFlood.atLabel}</span>}
+        </p>
+      )}
+      {current.caption && <p className="guide-note tide-quip">"{current.caption}"</p>}
+    </div>
+  );
+}
+
+function CardReply({ card, verdict, hourly, window, windowLabel, current, onAsk }: { card: ReplyCard; verdict?: Risk | null; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; current?: CurrentInfo | null; onAsk: (q: string) => void }) {
   const theme = verdict ? verdictTheme[verdict] : undefined;
   return (
     <div className="reply card-reply" style={{ "--verdict-color": theme?.color } as React.CSSProperties}>
@@ -191,6 +241,7 @@ function CardReply({ card, verdict, hourly, window, windowLabel, onAsk }: { card
           )}
         </div>
         {hourly && hourly.length > 0 && <PaddleTimeline hourly={hourly} window={window} title={windowLabel} />}
+        {current && hourly && hourly.some((h) => h.current != null) && <CurrentTimeline hourly={hourly} current={current} title={windowLabel} />}
         <p className="guide-note">“{card.note}”</p>
         <div className="action-row">
           {card.action.hccb ? (
@@ -204,7 +255,7 @@ function CardReply({ card, verdict, hourly, window, windowLabel, onAsk }: { card
   );
 }
 
-function AssistantReply({ text, pending, hourly, window, windowLabel }: { text: string; pending?: boolean; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string }) {
+function AssistantReply({ text, pending, hourly, window, windowLabel, current }: { text: string; pending?: boolean; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; current?: CurrentInfo | null }) {
   const parsed = parseReply(text);
   const theme = parsed.verdict ? verdictTheme[parsed.verdict] : undefined;
   return (
@@ -224,6 +275,7 @@ function AssistantReply({ text, pending, hourly, window, windowLabel }: { text: 
             ))
           : !parsed.headline && <p className="reply-plain">{text}</p>}
         {hourly && hourly.length > 0 && <PaddleTimeline hourly={hourly} window={window} title={windowLabel} />}
+        {current && hourly && hourly.some((h) => h.current != null) && <CurrentTimeline hourly={hourly} current={current} title={windowLabel} />}
       </div>
       {pending && <div className="thinking">Full briefing incoming<span className="dots"><i /><i /><i /></span></div>}
     </div>
@@ -256,7 +308,7 @@ export function KayakChat() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not get a response");
       setReadings(data.readings); setBriefing(data.briefing);
-      setMessages((old) => old.map((item, index) => index === old.length - 1 ? { role: "assistant", text: data.text ?? "", card: data.card, verdict: data.forecast ? data.forecast.verdict : (data.briefing?.assessment?.verdict ?? null), hourly: data.hourly, window: data.window, forecast: data.forecast } : item));
+      setMessages((old) => old.map((item, index) => index === old.length - 1 ? { role: "assistant", text: data.text ?? "", card: data.card, verdict: data.forecast ? data.forecast.verdict : (data.briefing?.assessment?.verdict ?? null), hourly: data.hourly, window: data.window, forecast: data.forecast, current: data.current } : item));
     } catch (error) {
       setMessages((old) => old.map((item, index) => index === old.length - 1 ? { role: "assistant", text: `⚠️ Saved data is available, but the guide is temporarily unavailable: ${error instanceof Error ? error.message : "unknown error"}` } : item));
     } finally { setLoading(false); }
@@ -298,8 +350,8 @@ export function KayakChat() {
               {message.role === "user"
                 ? <p>{message.text}</p>
                 : message.card
-                  ? <CardReply card={message.card} verdict={message.verdict} hourly={message.hourly} window={message.window} windowLabel={message.forecast && !message.forecast.isNow ? message.forecast.label : undefined} onAsk={ask} />
-                  : <AssistantReply text={message.text} pending={message.pending} hourly={message.hourly} window={message.window} windowLabel={message.forecast && !message.forecast.isNow ? message.forecast.label : undefined} />}
+                  ? <CardReply card={message.card} verdict={message.verdict} hourly={message.hourly} window={message.window} windowLabel={message.forecast && !message.forecast.isNow ? message.forecast.label : undefined} current={message.current} onAsk={ask} />
+                  : <AssistantReply text={message.text} pending={message.pending} hourly={message.hourly} window={message.window} windowLabel={message.forecast && !message.forecast.isNow ? message.forecast.label : undefined} current={message.current} />}
             </div>
           ))}
       <div ref={endRef} />
