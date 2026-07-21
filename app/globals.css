@@ -109,6 +109,9 @@ h1 em {
 }
 .lede { margin: 0; max-width: 42ch; color: var(--muted); font-size: 1.13rem; }
 .lede em { color: var(--ink); font-family: var(--display); font-size: 1.15em; }
+.lede .verse { display: block; font-family: var(--display); font-style: italic; color: var(--ink); font-size: 1.22rem; line-height: 1.34; }
+.lede .cite { display: block; margin: 5px 0 13px; font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint); }
+.lede .lede-turn { display: block; }
 
 /* chat panel --------------------------------------------------------- */
 .chat {
