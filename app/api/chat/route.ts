@@ -4,7 +4,7 @@ import { z } from "zod";
 import { buildFastAnswer, buildQuickBriefing } from "@/lib/briefing";
 import { latestConditions } from "@/lib/clickhouse";
 import { fetchNwsHourlyWind, fetchCurrentPredictions, type CurrentPrediction } from "@/lib/sources";
-import { buildHourlyOutlook, assessWindow, type HourlyRisk, type PaddleWindow } from "@/lib/windows";
+import { buildHourlyOutlook, assessWindow, summarizeCurrent, hourKey, type HourlyRisk, type PaddleWindow, type CurrentSummary } from "@/lib/windows";
 import { resolveWindow } from "@/lib/when";
 import type { Risk } from "@/lib/safety";
 
@@ -22,6 +22,7 @@ const cardSchema = z.object({
     why: z.string().describe("Max 10 words; name when the wind turns"),
   }).nullable().describe("null when the verdict is NO-GO"),
   note: z.string().describe("One line of dry local wit earned from today's numbers, max 16 words"),
+  currentLine: z.string().describe("one salty line about the tidal current for this window, max 12 words"),
   action: z.object({
     label: z.string().describe("Max 6 words, imperative"),
     hccb: z.boolean().describe("true if the action is HCCB's free paddle days"),
@@ -39,15 +40,17 @@ export async function POST(request: Request) {
 
     const target = resolveWindow(message);
     let hourly: HourlyRisk[] = [];
+    let currentPreds: CurrentPrediction[] = [];
     let window: PaddleWindow | null = null;
     let forecast: { label: string; isNow: boolean; verdict: Risk | null; opposingWind: boolean; best: PaddleWindow | null } | null = null;
     let beyondHorizon = false;
     try {
-      const [wind, current] = await Promise.all([
+      const [wind, cp] = await Promise.all([
         fetchNwsHourlyWind(),
         fetchCurrentPredictions(target.date).catch(() => [] as CurrentPrediction[]),
       ]);
-      hourly = buildHourlyOutlook(wind, current, { dischargeCfs: values.discharge }, target);
+      currentPreds = cp;
+      hourly = buildHourlyOutlook(wind, cp, { dischargeCfs: values.discharge }, target);
       beyondHorizon = !target.isNow && wind.length > 0 && hourly.length === 0;
       const assessed = assessWindow(hourly);
       window = assessed.best;
@@ -88,6 +91,16 @@ export async function POST(request: Request) {
     const hccbNote = (forecast?.verdict ?? briefing.assessment.verdict) === "safe"
       ? "\nThe verdict is GO, so the action should be Hoboken Cove Community Boathouse's free paddle days (hccb: true)."
       : "";
+    const currentDirNow = values.current_dir === undefined ? undefined : (values.current_dir > 90 && values.current_dir < 270 ? "ebb" : "flood");
+    const nowSigned = values.current_speed === undefined || !target.isNow
+      ? null
+      : (currentDirNow === "flood" ? values.current_speed : -values.current_speed);
+    const currentSummary: CurrentSummary = hourly.length
+      ? summarizeCurrent(currentPreds, hourKey(hourly[0].ts), hourKey(hourly[hourly.length - 1].ts))
+      : { nextTurn: null, peakEbb: null, peakFlood: null };
+    const hasCurve = hourly.some((h) => h.current !== null);
+    const firstSigned = hourly.find((h) => h.current !== null)?.current ?? null;
+    const fallbackCaption = firstSigned === null ? "" : firstSigned < 0 ? "ebb — free ride out, you pay coming back" : "flood — you earn every stroke out";
 
     try {
       const { object: card } = await generateObject({
@@ -107,9 +120,11 @@ export async function POST(request: Request) {
         note: clean(card.note),
         action: { ...card.action, label: clean(card.action.label) },
       };
-      return Response.json({ card: safeCard, text: null, readings, briefing, hourly, window, forecast });
+      const current = hasCurve ? { nowSigned, summary: currentSummary, caption: clean(card.currentLine) } : null;
+      return Response.json({ card: safeCard, text: null, readings, briefing, hourly, window, forecast, current });
     } catch {
-      return Response.json({ card: null, text: buildFastAnswer(message, readings), readings, briefing, hourly, window, forecast });
+      const current = hasCurve ? { nowSigned, summary: currentSummary, caption: fallbackCaption } : null;
+      return Response.json({ card: null, text: buildFastAnswer(message, readings), readings, briefing, hourly, window, forecast, current });
     }
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Paddle Agent could not answer." }, { status: 503 });
