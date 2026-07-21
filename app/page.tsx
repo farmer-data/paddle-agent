@@ -32,7 +32,6 @@ export default function Home() {
           <p className="lede">
             <span className="verse">&ldquo;The tide rises, the tide falls,<br />the twilight darkens, the curlew calls.&rdquo;</span>
             <span className="cite">— Henry Wadsworth Longfellow</span>
-            <span className="lede-turn">Ebb and flow, wind and river, read into one honest answer — <em>should you launch?</em></span>
           </p>
         </header>
         <KayakChat />
