@@ -2,7 +2,7 @@ import type { CurrentPrediction } from "./sources";
 import { assessSafety, type Risk } from "./safety";
 import type { TargetWindow } from "./when";
 
-export type HourlyRisk = { ts: string; hourLabel: string; windKnots: number; direction: string; risk: Risk; opposing: boolean };
+export type HourlyRisk = { ts: string; hourLabel: string; windKnots: number; direction: string; risk: Risk; opposing: boolean; current: number | null };
 export type PaddleWindow = { startLabel: string; endLabel: string; startIndex: number; endIndex: number; risk: Risk };
 
 const rank: Record<Risk, number> = { safe: 0, caution: 1, danger: 2 };
@@ -10,7 +10,7 @@ const directionDegrees: Record<string, number> = { N: 0, NNE: 22.5, NE: 45, ENE:
 
 // Both NWS ("2026-07-26T06:00:00-04:00") and NOAA ("2026-07-26 06:00") express Eastern
 // time, so slice a "YYYY-MM-DD HH" key from the string rather than doing TZ math.
-const hourKey = (ts: string) => ts.slice(0, 13).replace("T", " ");
+export const hourKey = (ts: string) => ts.slice(0, 13).replace("T", " ");
 const dateOf = (ts: string) => ts.slice(0, 10);
 const hourOf = (ts: string) => Number(ts.slice(11, 13));
 const labelForHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
@@ -42,6 +42,7 @@ export function buildHourlyOutlook(
       direction: period.direction,
       risk: assessment.verdict,
       opposing: assessment.opposingWind,
+      current: cur ? (cur.direction === "ebb" ? -cur.knots : cur.knots) : null,
     };
   });
 }
@@ -79,4 +80,49 @@ export function assessWindow(hourly: HourlyRisk[]): { verdict: Risk; best: Paddl
   const scope = best ? hourly.slice(best.startIndex, best.endIndex + 1) : hourly;
   const opposingWind = scope.some((h) => h.opposing);
   return { verdict, best, opposingWind };
+}
+
+export type CurrentSummary = {
+  nextTurn: { atLabel: string; toPhase: "ebb" | "flood" } | null;
+  peakEbb: { atLabel: string; knots: number } | null;
+  peakFlood: { atLabel: string; knots: number } | null;
+};
+
+// NOAA "YYYY-MM-DD HH:MM" -> minutes past midnight (comparisons stay within one day/window).
+const minutesOf = (ts: string) => Number(ts.slice(11, 13)) * 60 + Number(ts.slice(14, 16));
+const clockLabel = (mins: number) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+
+export function summarizeCurrent(predictions: CurrentPrediction[], startKey: string, endKey: string): CurrentSummary {
+  const series = predictions
+    .map((p) => ({ ts: p.ts, key: hourKey(p.ts), signed: p.direction === "ebb" ? -p.knots : p.knots }))
+    .sort((a, b) => a.ts.localeCompare(b.ts));
+
+  let peakEbb: CurrentSummary["peakEbb"] = null;
+  let peakFlood: CurrentSummary["peakFlood"] = null;
+  for (const s of series) {
+    if (s.key < startKey || s.key > endKey) continue;
+    const label = labelForHour(hourOf(s.ts));
+    if (s.signed < 0 && (!peakEbb || -s.signed > peakEbb.knots)) peakEbb = { atLabel: label, knots: -s.signed };
+    if (s.signed > 0 && (!peakFlood || s.signed > peakFlood.knots)) peakFlood = { atLabel: label, knots: s.signed };
+  }
+
+  let nextTurn: CurrentSummary["nextTurn"] = null;
+  const fromStart = series.filter((s) => s.key >= startKey);
+  for (let i = 1; i < fromStart.length; i++) {
+    const a = fromStart[i - 1];
+    const b = fromStart[i];
+    if (a.signed === 0 || b.signed === 0) continue;
+    if (a.signed < 0 !== b.signed < 0) {
+      const frac = Math.abs(a.signed) / (Math.abs(a.signed) + Math.abs(b.signed));
+      const crossing = Math.round(minutesOf(a.ts) + frac * (minutesOf(b.ts) - minutesOf(a.ts)));
+      nextTurn = { atLabel: clockLabel(crossing), toPhase: b.signed < 0 ? "ebb" : "flood" };
+      break;
+    }
+  }
+
+  return { nextTurn, peakEbb, peakFlood };
 }
