@@ -9,6 +9,10 @@ Paddle Agent is a safety-first Hudson River paddling guide. It combines live riv
 
 The chat UI streams compact go/caution/no-go briefings alongside wind and current charts.
 
+## Live demo
+
+Try Paddle Agent at **[paddle-agent.vercel.app](https://paddle-agent.vercel.app/)**.
+
 ## How it works
 
 ```text
@@ -124,4 +128,4 @@ Paddle Agent is a planning aid, not an official marine forecast or a substitute 
 
 ## License
 
-No license has been specified.
+This project is licensed under the [MIT License](LICENSE).
