@@ -15,7 +15,7 @@ const cardSchema = z.object({
   stats: z.array(z.object({
     value: z.string().describe("The number with unit, e.g. '4.3 kt'"),
     label: z.string().describe("What it is, 1-2 words, e.g. 'wind now'"),
-    feel: z.string().describe("What it feels like in the boat, max 7 words"),
+    feel: z.string().describe("What it feels like in the boat — vivid, salty, max 9 words. For the current, name what the tide is doing (ebb/flood/slack, wind-vs-tide chop)."),
   })).min(1).max(2),
   launch: z.object({
     time: z.string().describe("Clock time to launch, e.g. '6:00 AM'"),
@@ -71,6 +71,20 @@ export async function POST(request: Request) {
       ? `Hourly wind+current outlook for ${target.label}: ${hourly.map((h) => `${h.hourLabel} ${h.windKnots}kt/${h.risk}${h.opposing ? "/opposing" : ""}`).join(", ")}.`
       : "No hourly forecast available for that window.";
     const dischargeNote = `\nRiver discharge is assumed steady from the latest reading (${values.discharge === undefined ? "n/a" : `${Math.round(values.discharge)} cfs`}); it is not forecast.`;
+    const currentNote = (() => {
+      const kt = values.current_speed;
+      if (kt === undefined) return "\nTidal current: not available right now.";
+      const dir = values.current_dir;
+      const flooding = dir !== undefined && !(dir > 90 && dir < 270);
+      if (kt < 0.2) return `\nTidal current now: ${kt.toFixed(2)} kt — basically slack, the river hanging between tides.`;
+      const bearing = flooding
+        ? "flooding, flowing north as the sea shoulders back upriver (a paddle you pay for going out)"
+        : "ebbing, sliding south and seaward toward the harbor (a free ride out, earned back on return)";
+      const clash = briefing.assessment.opposingWind
+        ? " Wind is set against the tide, so the chop stacks up short and steep."
+        : "";
+      return `\nTidal current now: ${kt.toFixed(2)} kt, ${bearing}.${clash}`;
+    })();
     const hccbNote = (forecast?.verdict ?? briefing.assessment.verdict) === "safe"
       ? "\nThe verdict is GO, so the action should be Hoboken Cove Community Boathouse's free paddle days (hccb: true)."
       : "";
@@ -80,11 +94,11 @@ export async function POST(request: Request) {
         model: openai("gpt-5-mini"), maxOutputTokens: 1400,
         providerOptions: { openai: { reasoningEffort: "low" } },
         schema: cardSchema,
-        system: "You are Paddle Agent — a Hudson River guide with sixteen years on this water: sharp, warm, a little salty, allergic to filler. You fill a visual briefing card; the UI does the talking, so every field is short and earns its place. Pair numbers with what they feel like in the boat. Use the hourly trend for the requested window to pick the launch time — name when the wind turns; when the question names a future day, speak to that day, not to right now. Never invent readings, never use weather-app phrasing.",
-        prompt: `Paddler question: ${message}\nTarget window: ${target.label}\n\nLatest readings (${briefing.updatedAt}):\n${JSON.stringify(readings)}\nSafety assessment (now): ${JSON.stringify(briefing.assessment)}\nForecast verdict for ${target.label}: ${forecast?.verdict ?? "unknown"}\n${windowNote}\n${hourlyDigest}${dischargeNote}${hccbNote}`,
+        system: "You are Paddle Agent — a Hudson River guide with sixteen years on this water: sharp, warm, a little salty, allergic to filler. You fill a visual briefing card; the UI does the talking, so every field is short and earns its place. Pair numbers with what they feel like in the boat. Give the tide real character in the 'current now' stat: the ebb is a free ride seaward, the flood makes you pay to go out, slack is the river holding its breath, and wind set against the tide stacks the chop short and steep — read the current like a guide who knows the water, never a weather app. Use the hourly trend for the requested window to pick the launch time — name when the wind turns; when the question names a future day, speak to that day, not to right now. Never invent readings, never use weather-app phrasing.",
+        prompt: `Paddler question: ${message}\nTarget window: ${target.label}\n\nLatest readings (${briefing.updatedAt}):\n${JSON.stringify(readings)}\nSafety assessment (now): ${JSON.stringify(briefing.assessment)}\nForecast verdict for ${target.label}: ${forecast?.verdict ?? "unknown"}\n${windowNote}\n${hourlyDigest}${dischargeNote}${currentNote}${hccbNote}`,
       });
       // gpt-5-mini occasionally leaks JSON syntax into string fields
-      const clean = (value: string) => value.replace(/[{}[\]"\\]+/g, " ").replace(/\s+/g, " ").trim();
+      const clean = (value: string) => value.replace(/[{}[\]"\\]+/g, " ").replace(/\s+/g, " ").replace(/[\s,;]+$/, "").trim();
       const safeCard = {
         ...card,
         headline: clean(card.headline),
