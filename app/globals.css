@@ -249,6 +249,37 @@ h1 em {
 .reply-section li::before { content: "›"; position: absolute; left: 2px; color: var(--amber); }
 .reply-plain { margin: 0; white-space: pre-wrap; line-height: 1.7; color: var(--text); }
 
+.reply-skeleton { display: flex; flex-direction: column; gap: 9px; margin: 2px 0 4px; }
+.reply-skeleton .sk-line { height: 13px; border-radius: 6px; background: var(--line); animation: pulse 1.5s ease-in-out infinite; }
+.reply-skeleton .sk-head { height: 20px; width: 72%; background: var(--line-strong); }
+.reply-skeleton .sk-line.short { width: 44%; }
+.reply-skeleton .sk-chart { height: 148px; margin-top: 8px; border-radius: 14px; background: var(--line); animation: pulse 1.5s ease-in-out infinite; }
+.thinking.in-body { padding: 12px 0 2px; }
+
+.trip-card { margin: 2px 0 12px; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--risk-color, var(--faint)); border-radius: 14px; background: rgba(240, 249, 254, 0.75); animation: surface 0.5s both; }
+.trip-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.trip-badge { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.trip-rating { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; font-weight: 700; color: var(--risk-color, var(--faint)); }
+.trip-route { margin: 6px 0 4px; font-family: var(--display); font-style: italic; font-size: 1.22rem; color: var(--ink); }
+.trip-meta { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+.trip-meta .trip-id { color: var(--faint); }
+.trip-notes { margin: 8px 0 0; font-family: var(--display); font-style: italic; color: var(--muted); }
+
+.compare-card { margin: 2px 0 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(240, 249, 254, 0.75); animation: surface 0.5s both; }
+.compare-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.compare-badge { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.compare-flag { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.06em; color: var(--nogo); }
+.compare-columns { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+.compare-col { display: flex; flex-direction: column; gap: 2px; }
+.compare-label { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.compare-value { font-size: 1.5rem; color: var(--ink); }
+.compare-col em { font-style: normal; font-size: 0.78rem; color: var(--muted); }
+.compare-vs { font-size: 1.3rem; color: var(--risk-color, var(--faint)); font-weight: 700; }
+.compare-trips { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.compare-trips li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.compare-trips .ct-route { font-size: 0.9rem; color: var(--text); }
+.compare-trips .ct-meta { font-family: var(--mono); font-size: 0.7rem; color: var(--faint); }
+
 .timeline { margin-top: 14px; padding: 12px 12px 8px; border: 1px solid var(--line); border-radius: 14px; background: rgba(240, 249, 254, 0.75); animation: surface 0.5s both; }
 .timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .timeline-head h4 {

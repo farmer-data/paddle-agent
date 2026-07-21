@@ -4,13 +4,13 @@ export type Reading = { stationId: string; source: "usgs" | "noaa"; parameter: s
 export async function fetchUsgsReadings() {
   const url = new URL("https://waterservices.usgs.gov/nwis/iv/");
   url.search = new URLSearchParams({ format: "json", sites: "01335754,01377260", parameterCd: "00060,00065,00010", siteStatus: "all" }).toString();
-  const json = await fetch(url, { headers: { "User-Agent": "KayakGuide/0.1" } }).then((r) => r.json());
+  const json = await fetch(url, { headers: { "User-Agent": "PaddleAgent/0.1" } }).then((r) => r.json());
   return json.value.timeSeries.flatMap((series: any) => series.values[0]?.value.map((v: any) => ({ stationId: series.sourceInfo.siteCode[0].value, source: "usgs", parameter: series.variable.variableCode[0].value === "00060" ? "discharge" : series.variable.variableCode[0].value === "00065" ? "gage_height" : "water_temp", ts: v.dateTime, value: Number(v.value) })) ?? []);
 }
 
 export async function fetchNoaaWind() {
   const url = new URL(NOAA);
-  url.search = new URLSearchParams({ product: "wind", station: "8530973", date: "latest", time_zone: "lst_ldt", units: "english", format: "json", application: "kayak-guide" }).toString();
+  url.search = new URLSearchParams({ product: "wind", station: "8530973", date: "latest", time_zone: "lst_ldt", units: "english", format: "json", application: "paddle-agent" }).toString();
   const json = await fetch(url).then((r) => r.json());
   const item = json.data?.[0];
   if (!item) return [] as Reading[];
@@ -18,8 +18,8 @@ export async function fetchNoaaWind() {
 }
 
 export async function fetchNwsHourlyWind() {
-  const point = await fetch("https://api.weather.gov/points/40.7076,-74.0253", { headers: { "User-Agent": "KayakGuide/0.1" } }).then((r) => r.json());
-  const forecast = await fetch(point.properties.forecastHourly, { headers: { "User-Agent": "KayakGuide/0.1" } }).then((r) => r.json());
+  const point = await fetch("https://api.weather.gov/points/40.7076,-74.0253", { headers: { "User-Agent": "PaddleAgent/0.1" } }).then((r) => r.json());
+  const forecast = await fetch(point.properties.forecastHourly, { headers: { "User-Agent": "PaddleAgent/0.1" } }).then((r) => r.json());
   return forecast.properties.periods.map((p: any) => ({ ts: p.startTime, windKnots: Math.round(Number.parseFloat(p.windSpeed) * 0.868976), direction: p.windDirection }));
 }
 
@@ -37,7 +37,7 @@ export async function fetchCurrentPredictions(date: string): Promise<CurrentPred
     units: "english",
     interval: "60",
     format: "json",
-    application: "kayak-guide",
+    application: "paddle-agent",
   }).toString();
   const json = await fetch(url).then((r) => r.json());
   const items: any[] = json.current_predictions?.cp ?? [];
@@ -71,7 +71,7 @@ export async function fetchCurrentNow(now: Date = new Date()): Promise<Reading[]
     units: "english",
     interval: "6",
     format: "json",
-    application: "kayak-guide",
+    application: "paddle-agent",
   }).toString();
   const json = await fetch(url).then((r) => r.json());
   const items: any[] = json.current_predictions?.cp ?? [];

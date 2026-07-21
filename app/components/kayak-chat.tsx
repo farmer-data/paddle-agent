@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
 import { Area, AreaChart, Bar, BarChart, Cell, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { mintChatAccessToken, startChatSession } from "@/app/actions";
+import type { PaddleBriefingData, PaddleChatUIMessage, PaddleComparisonData, PaddleTripData } from "@/lib/chat-types";
 import type { CurrentSummary, HourlyRisk, PaddleWindow } from "@/lib/windows";
 
 type Condition = { parameter: string; value: number; ts: string };
@@ -27,7 +31,13 @@ const feelFor = (knots: number) =>
   knots < 10 ? "light chop building" :
   knots < 15 ? "working water — brace your stroke" : "whitecaps — stay ashore";
 
-const prompts = ["Can I paddle Sunday morning with a beginner?", "Find low-wind paddle windows", "Show current Hudson conditions"];
+const prompts = [
+  "Can I paddle Sunday morning with a beginner?",
+  "Find low-wind paddle windows",
+  "Show current Hudson conditions",
+  "Log today's Hoboken–Pier 66 paddle as rough.",
+  "How does Sunday's forecast compare with trips I rated rough?",
+];
 
 const verdictTheme: Record<Risk, { color: string; word: string }> = {
   safe: { color: "var(--go)", word: "GO" },
@@ -46,7 +56,7 @@ const cardinal = (deg: number) =>
 
 // ---- agent reply parsing --------------------------------------------------
 type ParsedReply = { verdict: Risk | null; headline: string; sections: { label: string; lines: string[] }[]; raw: string };
-const sectionPattern = /^(WHY IT MATTERS|BEST MOVE|GUIDE'S NOTE|RIVER MEMORY|NEXT ACTION)\b[\s:→\-—–]*(.*)$/;
+const sectionPattern = /^(WHY IT MATTERS|BEST MOVE|GUIDE'S NOTE|NEXT ACTION)\b[\s:→\-—–]*(.*)$/;
 
 function parseReply(text: string): ParsedReply {
   const parsed: ParsedReply = { verdict: null, headline: "", sections: [], raw: text };
@@ -255,29 +265,111 @@ function CardReply({ card, verdict, hourly, window, windowLabel, current, onAsk 
   );
 }
 
-function AssistantReply({ text, pending, hourly, window, windowLabel, current }: { text: string; pending?: boolean; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; current?: CurrentInfo | null }) {
+const tripRatingTheme: Record<PaddleTripData["rating"], { color: string; word: string }> = {
+  calm: { color: "var(--go)", word: "CALM" },
+  moderate: { color: "var(--caution)", word: "MODERATE" },
+  rough: { color: "var(--nogo)", word: "ROUGH" },
+};
+
+function TripSavedCard({ trip }: { trip: PaddleTripData }) {
+  const theme = tripRatingTheme[trip.rating] ?? { color: "var(--faint)", word: trip.rating.toUpperCase() };
+  return (
+    <div className="trip-card" style={{ "--risk-color": theme.color } as React.CSSProperties}>
+      <div className="trip-head">
+        <span className="trip-badge">Trip logged</span>
+        <span className="trip-rating">{theme.word}</span>
+      </div>
+      <p className="trip-route">{trip.route}</p>
+      <div className="trip-meta">
+        <span>{trip.startedAt}</span>
+        <span className="trip-id">#{trip.tripId.slice(0, 8)}</span>
+      </div>
+      {trip.notes && <p className="trip-notes">“{trip.notes}”</p>}
+    </div>
+  );
+}
+
+function ComparisonCard({ data }: { data: PaddleComparisonData }) {
+  const { forecast, rough, trips } = data;
+  const theme = forecast.verdict ? verdictTheme[forecast.verdict] : undefined;
+  const delta = forecast.available && rough.rough_trips > 0 ? forecast.windKnots - rough.median_wind : null;
+  return (
+    <div className="compare-card" style={{ "--risk-color": theme?.color ?? "var(--faint)" } as React.CSSProperties}>
+      <div className="compare-head">
+        <span className="compare-badge">Forecast vs rough trips</span>
+        {forecast.opposingWind && <span className="compare-flag">⚠ wind against the ebb</span>}
+      </div>
+      <div className="compare-columns">
+        <div className="compare-col">
+          <span className="compare-label">{forecast.label}</span>
+          <strong className="compare-value">{forecast.available ? `${forecast.windKnots.toFixed(1)} kn` : "—"}</strong>
+          <em>{forecast.available ? `${forecast.windDirection} wind${forecast.currentPhase ? ` · ${forecast.currentPhase}` : ""}` : "forecast unavailable"}</em>
+        </div>
+        <div className="compare-vs">{delta === null ? "vs" : delta < 0 ? "↓" : "↑"}</div>
+        <div className="compare-col">
+          <span className="compare-label">Rough-trip median</span>
+          <strong className="compare-value">{rough.rough_trips > 0 ? `${rough.median_wind.toFixed(1)} kn` : "—"}</strong>
+          <em>{rough.rough_trips > 0 ? `across ${rough.rough_trips} rough trip${rough.rough_trips === 1 ? "" : "s"}` : "no rough trips logged"}</em>
+        </div>
+      </div>
+      {trips.length > 0 && (
+        <ul className="compare-trips">
+          {trips.map((t) => (
+            <li key={t.trip_id}>
+              <span className="ct-route">{t.route}</span>
+              <span className="ct-meta">{t.started_at.slice(0, 16)} · {t.wind.toFixed(1)} kn</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AssistantReply({ text, pending, hourly, window, windowLabel, current, trip, comparison }: { text: string; pending?: boolean; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; current?: CurrentInfo | null; trip?: PaddleTripData | null; comparison?: PaddleComparisonData | null }) {
   const parsed = parseReply(text);
-  const theme = parsed.verdict ? verdictTheme[parsed.verdict] : undefined;
+  const theme = !pending && parsed.verdict ? verdictTheme[parsed.verdict] : undefined;
+  const hasChart = !!hourly && hourly.length > 0;
+  const timelines = hasChart && (
+    <>
+      <PaddleTimeline hourly={hourly!} window={window} title={windowLabel} />
+      {current && hourly!.some((h) => h.current != null) && <CurrentTimeline hourly={hourly!} current={current} title={windowLabel} />}
+    </>
+  );
   return (
     <div className={`reply${pending ? " pending" : ""}`} style={{ "--verdict-color": theme?.color } as React.CSSProperties}>
       <div className="reply-topbar">
         {theme && <span className="verdict-chip">{theme.word}</span>}
-        <span>{pending ? "Instant read · saved snapshot" : "Paddle Agent briefing"}</span>
+        <span>Paddle Agent briefing</span>
       </div>
       <div className="reply-body">
-        {parsed.headline && <p className="reply-headline">{parsed.headline}</p>}
-        {parsed.sections.length > 0
-          ? parsed.sections.map((section, index) => (
-              <div key={section.label} className={`reply-section${section.label === "NEXT ACTION" ? " action" : ""}${section.label === "GUIDE'S NOTE" ? " note" : ""}`} style={{ "--i": index } as React.CSSProperties}>
-                <h4>{section.label}</h4>
-                <ul>{section.lines.map((line, i) => <li key={i}>{line}</li>)}</ul>
-              </div>
-            ))
-          : !parsed.headline && <p className="reply-plain">{text}</p>}
-        {hourly && hourly.length > 0 && <PaddleTimeline hourly={hourly} window={window} title={windowLabel} />}
-        {current && hourly && hourly.some((h) => h.current != null) && <CurrentTimeline hourly={hourly} current={current} title={windowLabel} />}
+        {pending ? (
+          <>
+            <div className="reply-skeleton" aria-hidden>
+              <span className="sk-line sk-head" />
+              <span className="sk-line" />
+              <span className="sk-line short" />
+              {hasChart && <span className="sk-chart" />}
+            </div>
+            <div className="thinking in-body">Drafting your briefing<span className="dots"><i /><i /><i /></span></div>
+          </>
+        ) : (
+          <>
+            {trip && <TripSavedCard trip={trip} />}
+            {comparison && <ComparisonCard data={comparison} />}
+            {parsed.headline && <p className="reply-headline">{parsed.headline}</p>}
+            {parsed.sections.length > 0
+              ? parsed.sections.map((section, index) => (
+                  <div key={section.label} className={`reply-section${section.label === "NEXT ACTION" ? " action" : ""}${section.label === "GUIDE'S NOTE" ? " note" : ""}`} style={{ "--i": index } as React.CSSProperties}>
+                    <h4>{section.label}</h4>
+                    <ul>{section.lines.map((line, i) => <li key={i}>{line}</li>)}</ul>
+                  </div>
+                ))
+              : !parsed.headline && <p className="reply-plain">{text}</p>}
+            {timelines}
+          </>
+        )}
       </div>
-      {pending && <div className="thinking">Full briefing incoming<span className="dots"><i /><i /><i /></span></div>}
     </div>
   );
 }
@@ -285,11 +377,16 @@ function AssistantReply({ text, pending, hourly, window, windowLabel, current }:
 // ---- main component -------------------------------------------------------
 export function KayakChat() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
   const [readings, setReadings] = useState<Condition[]>([]);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
-  const [loading, setLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const transport = useTriggerChatTransport({
+    task: "paddle-agent",
+    accessToken: ({ chatId }) => mintChatAccessToken(chatId),
+    startSession: ({ chatId, clientData }) => startChatSession({ chatId, clientData }),
+  });
+  const { messages, sendMessage, status, error, stop } = useChat<PaddleChatUIMessage>({ transport });
+  const loading = status === "submitted" || status === "streaming";
 
   const refreshSnapshot = async () => {
     const response = await fetch("/api/conditions", { cache: "no-store" });
@@ -299,19 +396,27 @@ export function KayakChat() {
   useEffect(() => { void refreshSnapshot(); }, []);
   useEffect(() => { if (messages.length) endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages, loading]);
 
-  const ask = async (question: string) => {
+  const ask = (question: string) => {
     if (!question.trim() || loading) return;
-    setInput(""); setLoading(true);
-    setMessages((old) => [...old, { role: "user", text: question }, { role: "assistant", text: briefing?.summary ?? "Loading the saved river snapshot…", pending: true }]);
-    try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: question }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Could not get a response");
-      setReadings(data.readings); setBriefing(data.briefing);
-      setMessages((old) => old.map((item, index) => index === old.length - 1 ? { role: "assistant", text: data.text ?? "", card: data.card, verdict: data.forecast ? data.forecast.verdict : (data.briefing?.assessment?.verdict ?? null), hourly: data.hourly, window: data.window, forecast: data.forecast, current: data.current } : item));
-    } catch (error) {
-      setMessages((old) => old.map((item, index) => index === old.length - 1 ? { role: "assistant", text: `⚠️ Saved data is available, but the guide is temporarily unavailable: ${error instanceof Error ? error.message : "unknown error"}` } : item));
-    } finally { setLoading(false); }
+    setInput("");
+    void sendMessage({ text: question });
+  };
+
+  const messageText = (parts: typeof messages[number]["parts"]) => parts
+    .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+  const briefingData = (parts: typeof messages[number]["parts"]): PaddleBriefingData | undefined => {
+    const part = [...parts].reverse().find((candidate) => candidate.type === "data-paddle-briefing");
+    return part?.type === "data-paddle-briefing" ? part.data : undefined;
+  };
+  const tripData = (parts: typeof messages[number]["parts"]): PaddleTripData | undefined => {
+    const part = [...parts].reverse().find((candidate) => candidate.type === "data-paddle-trip");
+    return part?.type === "data-paddle-trip" ? part.data : undefined;
+  };
+  const comparisonData = (parts: typeof messages[number]["parts"]): PaddleComparisonData | undefined => {
+    const part = [...parts].reverse().find((candidate) => candidate.type === "data-paddle-comparison");
+    return part?.type === "data-paddle-comparison" ? part.data : undefined;
   };
 
   const values = Object.fromEntries(readings.map((reading) => [reading.parameter, reading.value]));
@@ -345,21 +450,35 @@ export function KayakChat() {
             <span className="empty-glyph">🛶</span>
             <p>Ask about your paddle.</p>
           </div>
-        : messages.map((message, i) => (
-            <div key={i} className={`msg ${message.role}`}>
+        : messages.map((message) => {
+            const text = messageText(message.parts);
+            const chart = briefingData(message.parts);
+            const trip = tripData(message.parts);
+            const comparison = comparisonData(message.parts);
+            return <div key={message.id} className={`msg ${message.role}`}>
               {message.role === "user"
-                ? <p>{message.text}</p>
-                : message.card
-                  ? <CardReply card={message.card} verdict={message.verdict} hourly={message.hourly} window={message.window} windowLabel={message.forecast && !message.forecast.isNow ? message.forecast.label : undefined} current={message.current} onAsk={ask} />
-                  : <AssistantReply text={message.text} pending={message.pending} hourly={message.hourly} window={message.window} windowLabel={message.forecast && !message.forecast.isNow ? message.forecast.label : undefined} current={message.current} />}
-            </div>
-          ))}
+                ? <p>{text}</p>
+                : <AssistantReply
+                    text={text || "Reading the river…"}
+                    pending={loading && message === messages.at(-1)}
+                    hourly={chart?.hourly}
+                    window={chart?.window}
+                    windowLabel={chart?.label}
+                    current={chart?.current}
+                    trip={trip}
+                    comparison={comparison}
+                  />}
+            </div>;
+          })}
+      {error && <div className="msg assistant"><p>⚠️ Paddle Agent could not answer: {error.message}</p></div>}
       <div ref={endRef} />
     </div>
 
     <form onSubmit={(event) => { event.preventDefault(); void ask(input); }}>
       <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask Paddle Agent about your paddle…" />
-      <button className="send" disabled={loading}>{loading ? "Briefing…" : "Send"}</button>
+      {loading
+        ? <button className="send" type="button" onClick={() => void stop()}>Stop</button>
+        : <button className="send" disabled={!input.trim()}>Send</button>}
     </form>
   </section>;
 }
