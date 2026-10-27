@@ -38,10 +38,9 @@ function bounds(): maplibregl.LngLatBounds {
   return b;
 }
 
-function arrow(deg: number, label: string, cls: string, offsetY = 0): HTMLElement {
+function arrow(deg: number, label: string, cls: string): HTMLElement {
   const el = document.createElement("div");
   el.className = `map-arrow ${cls}`;
-  if (offsetY) el.style.transform = `translateY(${offsetY}px)`;
   el.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2 L19 20 L12 16 L5 20 Z" /></svg><b></b>';
   (el.firstElementChild as SVGElement).style.transform = `rotate(${deg}deg)`;
   el.lastElementChild!.textContent = label;
@@ -137,7 +136,7 @@ export default function PaddleMap(props: PaddleMapProps) {
       }
       const sel = hourAt(outlooks[zoneId], selectedKey);
       if (sel?.windKnots != null && sel.windFromDeg != null) {
-        dynamic.push(new maplibregl.Marker({ element: arrow(sel.windFromDeg + 180, `wind ${Math.round(sel.windKnots)} kn`, "wind", -34) }).setLngLat(zoneById(zoneId).center).addTo(map));
+        dynamic.push(new maplibregl.Marker({ element: arrow(sel.windFromDeg + 180, `wind ${Math.round(sel.windKnots)} kn`, "wind"), offset: [0, -40] }).setLngLat(zoneById(zoneId).center).addTo(map));
       }
 
       const seen = new Map<string, number>();

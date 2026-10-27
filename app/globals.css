@@ -113,7 +113,7 @@ main.home { max-width: 1240px; margin: 0 auto; padding: 14px 16px 120px; }
 .paddle-map.map-loading { background: #e8eff3; }
 .map-pin.launch { width: 16px; height: 16px; box-sizing: border-box; border: 3px solid var(--ink); border-radius: 50%; background: #fff; cursor: pointer; }
 .map-pin.landmark { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
-.map-trip { width: 14px; height: 14px; box-sizing: border-box; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px var(--ink); }
+.map-trip { pointer-events: none; width: 14px; height: 14px; box-sizing: border-box; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px var(--ink); }
 .map-arrow { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
 .map-arrow svg { fill: var(--ink); stroke: #fff; stroke-width: 1.5; }
 .map-arrow b { padding: 0 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.85); color: var(--ink); font: 600 0.68rem var(--mono); white-space: nowrap; }
