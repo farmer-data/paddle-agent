@@ -1,6 +1,5 @@
 node_modules
 .next
-.trigger
 .env
 *.tsbuildinfo
 .vercel
