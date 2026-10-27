@@ -3,7 +3,7 @@ import { z } from "zod";
 import { roughTripStats, windowForecast } from "../compare";
 import type { Mode } from "../config";
 import { CONFIG } from "../config";
-import { bestWindow, bestWindowText, buildZoneOutlook, type OutlookInputs, type ZoneOutlook } from "../outlook";
+import { bestWindow, bestWindowText, buildZoneOutlook, SOURCE_LABEL, type OutlookInputs, type ZoneOutlook } from "../outlook";
 import { findPlace } from "../route/graph";
 import { planRoute, summarizeRoute } from "../route/plan";
 import { nyParts, nyStamp, nyWallToDate } from "../time";
@@ -28,7 +28,7 @@ const zoneField = z.enum(zoneIds).optional().describe("Zone id; defaults to the 
 const STAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
 const hourRow = (h: PaddleBriefingData["hours"][number]) => ({
-  at: h.key, wind_kn: h.windKnots, wind_from: h.direction, current_kn: h.current === null ? null : Number(h.current.toFixed(2)),
+  at: h.key, wind_kn: h.windKnots === null ? null : Number(h.windKnots.toFixed(1)), wind_from: h.direction, current_kn: h.current === null ? null : Number(h.current.toFixed(2)),
   phase: h.current === null ? null : h.current < 0 ? "ebb" : "flood", risk: h.risk, opposing: h.opposing, daylight: h.daylight, reasons: h.reasons,
 });
 
@@ -53,7 +53,9 @@ export function createPaddleTools(ctx: PaddleToolContext) {
       inputSchema: z.object({ zone: zoneField }),
       execute: async ({ zone }) => {
         const o = outlookFor(zone ?? ctx.zoneId);
-        return briefing(o, o.strip.hours, o.strip.label, bestWindowText(o.best, o.strip.label), o.best);
+        // The strip covers daylight only; "now" must be answered from the current hour itself (it may be night or have missing data).
+        const now = { ...hourRow(o.hours[0]), missing: o.hours[0].missing.map((s) => SOURCE_LABEL[s]) };
+        return { now, ...briefing(o, o.strip.hours, o.strip.label, bestWindowText(o.best, o.strip.label), o.best) };
       },
     }),
 
@@ -86,6 +88,9 @@ export function createPaddleTools(ctx: PaddleToolContext) {
         const a = findPlace(from), b = findPlace(to);
         if (!a || !b) {
           return { error: `I don't know ${!a ? `"${from}"` : `"${to}"`}. Use one of the known places.`, knownPlaces: PLACES.map((p) => p.name) };
+        }
+        if (a.kind !== "launch") {
+          return { error: `${a.name} is a landmark, not a launch. A route has to start from a launch.`, launches: PLACES.filter((p) => p.kind === "launch").map((p) => p.name) };
         }
         const p = nyParts(ctx.now);
         const departAt = depart && STAMP.test(depart) ? depart : nyStamp(new Date(nyWallToDate(p.date, p.hour).getTime() + 3_600_000));
@@ -137,7 +142,10 @@ export function createPaddleTools(ctx: PaddleToolContext) {
         const forecast = windowForecast(outlook, target);
         const rough = roughTripStats(ctx.trips);
         ctx.write({ type: "data-paddle-comparison", data: { forecast, rough: rough.stats, trips: rough.trips } });
-        return { available: forecast.available, roughTrips: rough.stats.rough_trips, forecast, rough: rough.stats };
+        return {
+          available: forecast.available, roughTrips: rough.stats.rough_trips, forecast, rough: rough.stats,
+          ...(forecast.available ? {} : { note: "Wind unavailable for that window; do not compare wind or call it calm." }),
+        };
       },
     }),
   };

@@ -47,7 +47,7 @@ export function VerdictCard({ outlook, hour, isNow, failed, onRetry }: {
 }
 
 export function FactorChips({ outlook, hour, isNow, rainKnown }: { outlook: ZoneOutlook; hour: HourView; isNow: boolean; rainKnown: boolean }) {
-  const wind = hour.windKnots === null ? "unavailable" : `${hour.windKnots} kn${hour.direction ? ` ${hour.direction}` : ""}`;
+  const wind = hour.windKnots === null ? "unavailable" : `${Math.round(hour.windKnots)} kn${hour.direction ? ` ${hour.direction}` : ""}`;
   const cur = hour.current === null ? "unavailable"
     : `${Math.abs(hour.current).toFixed(1)} kn ${hour.current < 0 ? "ebb" : "flood"}`;
   const turn = isNow ? outlook.currentNow?.summary.nextTurn : null;

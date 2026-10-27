@@ -70,7 +70,8 @@ function parseReply(text: string): ParsedReply {
 }
 
 // ---- presentational pieces ------------------------------------------------
-function PaddleTimeline({ hours, best, title }: { hours: HourView[]; best?: BestWindow | null; title?: string }) {
+function PaddleTimeline({ hours, best, title, mode }: { hours: HourView[]; best?: BestWindow | null; title?: string; mode: Mode }) {
+  const wind = CONFIG.thresholds[mode].wind;
   const [selected, setSelected] = useState<number | null>(null);
   const picked = selected !== null ? hours[selected] : null;
   const data = hours.map((h) => ({ ...h, bar: h.windKnots ?? 0 }));
@@ -93,15 +94,15 @@ function PaddleTimeline({ hours, best, title }: { hours: HourView[]; best?: Best
           {win && startLabel && endLabel && (
             <ReferenceArea x1={startLabel} x2={endLabel} fill={winColor} fillOpacity={0.12} stroke={winColor} strokeOpacity={0.35} strokeDasharray="3 3" />
           )}
-          <ReferenceLine y={10} stroke="var(--caution)" strokeOpacity={0.4} strokeDasharray="4 4" />
-          <ReferenceLine y={15} stroke="var(--nogo)" strokeOpacity={0.4} strokeDasharray="4 4" />
+          <ReferenceLine y={wind.caution} stroke="var(--caution)" strokeOpacity={0.4} strokeDasharray="4 4" />
+          <ReferenceLine y={wind.danger} stroke="var(--nogo)" strokeOpacity={0.4} strokeDasharray="4 4" />
           <XAxis dataKey="hourLabel" tickLine={false} axisLine={false} interval={1} tick={{ fill: "var(--faint)", fontSize: 10, fontFamily: "var(--mono)" }} />
           <YAxis width={26} unit="" tickLine={false} axisLine={false} tick={{ fill: "var(--faint)", fontSize: 10, fontFamily: "var(--mono)" }} />
           <Tooltip cursor={{ fill: "rgba(27, 159, 216, 0.08)" }} contentStyle={{ background: "var(--deep)", border: "1px solid var(--line-strong)", borderRadius: 10, fontSize: 12, boxShadow: "0 10px 24px -14px rgba(13, 51, 73, 0.4)" }}
             labelStyle={{ color: "var(--muted)" }} itemStyle={{ color: "var(--text)" }}
             formatter={(value, _name, item) => {
               const hour = item?.payload as HourView | undefined;
-              return hour?.risk === "unknown" ? ["No verdict", "wind"] : [`${value ?? "—"} kn ${hour?.direction ?? ""}`, "wind"];
+              return hour?.risk === "unknown" ? ["No verdict", "wind"] : [`${hour?.windKnots == null ? "—" : Math.round(hour.windKnots)} kn ${hour?.direction ?? ""}`, "wind"];
             }} />
           <Bar dataKey="bar" radius={[3, 3, 0, 0]} isAnimationActive={false} cursor="pointer"
             onClick={(_, index) => setSelected(index === selected ? null : index)}>
@@ -115,10 +116,10 @@ function PaddleTimeline({ hours, best, title }: { hours: HourView[]; best?: Best
       </ResponsiveContainer>
       {picked ? (
         <p className="hour-detail" style={{ "--risk-color": verdictTheme[picked.risk].color } as React.CSSProperties}>
-          <strong>{picked.hourLabel}</strong> · {picked.windKnots === null ? "wind unavailable" : `${picked.windKnots} kt ${picked.direction ?? ""}`} · <span className="hour-risk">{verdictTheme[picked.risk].word}</span>{picked.windKnots !== null && <> · {feelFor(picked.windKnots)}</>}
+          <strong>{picked.hourLabel}</strong> · {picked.windKnots === null ? "wind unavailable" : `${Math.round(picked.windKnots)} kt ${picked.direction ?? ""}`} · <span className="hour-risk">{verdictTheme[picked.risk].word}</span>{picked.windKnots !== null && <> · {feelFor(picked.windKnots)}</>}
         </p>
       ) : (
-        <p className="timeline-legend">tap an hour to read the water · dashed lines = caution / no-go wind</p>
+        <p className="timeline-legend">tap an hour to read the water · dashed lines = caution / no-go wind for your mode</p>
       )}
     </div>
   );
@@ -200,18 +201,18 @@ function TripSavedCard({ trip }: { trip: Trip }) {
 function ComparisonCard({ data }: { data: PaddleComparisonData }) {
   const { forecast, rough, trips } = data;
   const theme = forecast.verdict ? verdictTheme[forecast.verdict] : undefined;
-  const delta = forecast.available && rough.rough_trips > 0 ? forecast.windKnots - rough.median_wind : null;
+  const delta = forecast.windKnots !== null && rough.rough_trips > 0 ? forecast.windKnots - rough.median_wind : null;
   return (
     <div className="compare-card" style={{ "--risk-color": theme?.color ?? "var(--faint)" } as React.CSSProperties}>
       <div className="compare-head">
         <span className="compare-badge">Forecast vs rough trips</span>
-        {forecast.opposingWind && <span className="compare-flag">⚠ wind against the ebb</span>}
+        {forecast.opposingWind && <span className="compare-flag">⚠ wind against the {forecast.opposingPhase ?? "current"}</span>}
       </div>
       <div className="compare-columns">
         <div className="compare-col">
           <span className="compare-label">{forecast.label}</span>
-          <strong className="compare-value">{forecast.available ? `${forecast.windKnots.toFixed(1)} kn` : "—"}</strong>
-          <em>{forecast.available ? `${forecast.windDirection} wind${forecast.currentPhase ? ` · ${forecast.currentPhase}` : ""}` : "forecast unavailable"}</em>
+          <strong className="compare-value">{forecast.windKnots !== null ? `${forecast.windKnots.toFixed(1)} kn` : "wind unavailable"}</strong>
+          <em>{forecast.available && forecast.windKnots !== null ? `${forecast.windDirection} wind${forecast.currentPhase ? ` · ${forecast.currentPhase}` : ""}` : "forecast unavailable"}</em>
         </div>
         <div className="compare-vs">{delta === null ? "vs" : delta < 0 ? "↓" : "↑"}</div>
         <div className="compare-col">
@@ -262,7 +263,7 @@ function AssistantReply({ text, pending, briefing, trip, comparison, route, onRo
   const hasChart = !!hours && hours.length > 0;
   const timelines = hasChart && (
     <>
-      <PaddleTimeline hours={hours} best={briefing.best} title={briefing.label} />
+      <PaddleTimeline hours={hours} best={briefing.best} title={briefing.label} mode={briefing.mode} />
       {briefing.currentNow && hours.some((h) => h.current != null) && <CurrentTimeline hours={hours} current={briefing.currentNow} title={briefing.label} />}
     </>
   );

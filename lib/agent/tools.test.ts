@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { findPlace } from "../route/graph";
+import { PLACES } from "../zones";
 import { inputs, NOW } from "../test-fixtures";
 import type { Trip } from "../trips";
 import type { PaddleDataPart } from "./types";
@@ -21,6 +22,19 @@ describe("paddle tools", () => {
     expect(parts[0]).toMatchObject({ type: "data-paddle-briefing", data: { zoneId: "lower-hudson", mode: "beginner", label: "Today" } });
     expect(out).toHaveProperty("bestText");
   });
+  it("get_conditions leads with a now row, even at night when the daylight strip is tomorrow's", async () => {
+    const night = new Date("2026-10-27T03:00:00Z"); // 23:00 NY on the 26th
+    const out: any = await createPaddleTools({ ...ctx, now: night, inputs: inputs() }).get_conditions.execute!({}, opts);
+    expect(out.label).toBe("Tomorrow");
+    expect(out.now).toMatchObject({ at: "2026-10-26 23", risk: "danger", daylight: false });
+    expect(out.now.reasons).toContain("Outside daylight hours");
+    expect(out.hours[0].at).not.toBe(out.now.at);
+  });
+  it("get_conditions names the sources missing from the now hour", async () => {
+    const i = inputs(); i.zones.forEach((z) => (z.wind = null));
+    const out: any = await createPaddleTools({ ...ctx, inputs: i }).get_conditions.execute!({}, opts);
+    expect(out.now).toMatchObject({ risk: "unknown", missing: ["NWS wind forecast"], wind_kn: null });
+  });
   it("get_conditions honours an explicit zone", async () => {
     const parts: any[] = [];
     await createPaddleTools({ ...ctx, write: (p) => parts.push(p) }).get_conditions.execute!({ zone: "lower-east" }, opts);
@@ -40,6 +54,22 @@ describe("paddle tools", () => {
     const out: any = await createPaddleTools({ ...ctx, write: (p) => parts.push(p) }).plan_route.execute!({ from: "pier 40", to: "narnia" }, opts);
     expect(out.error).toBeTruthy(); expect(out.knownPlaces).toContain(findPlace("pier 40")!.name);
     expect(parts).toHaveLength(0);
+  });
+  it("plan_route rejects a landmark as the start and lists the launches", async () => {
+    const landmark = PLACES.find((p) => p.kind === "landmark")!;
+    const parts: any[] = [];
+    const out: any = await createPaddleTools({ ...ctx, write: (p) => parts.push(p) }).plan_route.execute!({ from: landmark.name, to: "pier 40" }, opts);
+    expect(out.error).toMatch(/launch/i);
+    expect(out.launches).toContain("Pier 40");
+    expect(out.launches).not.toContain(landmark.name);
+    expect(parts).toHaveLength(0);
+  });
+  it("compare_rough_trips says wind is unavailable instead of reporting 0 kn", async () => {
+    const i = inputs(); i.zones.forEach((z) => (z.wind = null));
+    const out: any = await createPaddleTools({ ...ctx, inputs: i }).compare_rough_trips.execute!({ when: "tomorrow morning" }, opts);
+    expect(out.available).toBe(false);
+    expect(out.forecast.windKnots).toBeNull();
+    expect(out.note).toMatch(/wind unavailable/i);
   });
   it("plan_route turns planner errors into tool errors instead of throwing", async () => {
     const out: any = await createPaddleTools(ctx).plan_route.execute!({ from: "pier 40", to: "pier 40" }, opts);

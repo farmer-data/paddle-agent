@@ -9,12 +9,13 @@ export type ForecastSummary = {
   label: string;
   date: string;
   hours: number;
-  windKnots: number;
+  windKnots: number | null; // null only when available is false: no in-window hour has wind
   windDirection: string;
   currentKnots: number | null;
   currentPhase: "ebb" | "flood" | null;
   verdict: "safe" | "caution" | "danger" | null;
   opposingWind: boolean;
+  opposingPhase: "ebb" | "flood" | null;
 };
 
 const round = (value: number, places = 1) => Number(value.toFixed(places));
@@ -47,9 +48,13 @@ export function windowForecast(outlook: ZoneOutlook, target: TargetWindow): Fore
     ? outlook.hours.slice(0, 12)
     : outlook.hours.filter((h) => h.key.slice(0, 10) === target.date && Number(h.key.slice(11)) >= target.startHour && Number(h.key.slice(11)) < target.endHour);
   if (!hours.length) {
-    return { available: false, label: target.label, date: target.date, hours: 0, windKnots: 0, windDirection: "", currentKnots: null, currentPhase: null, verdict: null, opposingWind: false };
+    return { available: false, label: target.label, date: target.date, hours: 0, windKnots: 0, windDirection: "", currentKnots: null, currentPhase: null, verdict: null, opposingWind: false, opposingPhase: null };
   }
   const withWind = hours.filter((h) => h.windKnots !== null);
+  // Missing wind is not calm: with no wind in the window there is nothing to compare.
+  if (!withWind.length) {
+    return { available: false, label: target.label, date: target.date, hours: hours.length, windKnots: null, windDirection: "", currentKnots: null, currentPhase: null, verdict: null, opposingWind: false, opposingPhase: null };
+  }
   const windiest = withWind.length ? withWind.reduce((best, h) => (h.windKnots! > best.windKnots! ? h : best)) : null;
   const withCurrent = hours.filter((h) => h.current !== null);
   const strongest = withCurrent.length ? withCurrent.reduce((best, h) => (Math.abs(h.current!) > Math.abs(best.current!) ? h : best)) : null;
@@ -57,6 +62,7 @@ export function windowForecast(outlook: ZoneOutlook, target: TargetWindow): Fore
   const known = hours.some((h) => h.risk !== "unknown");
   const verdict = best.kind === "green" ? "safe" : best.kind === "leastRisky" ? "caution" : known ? "danger" : null;
   const scope = best.kind === "none" ? hours : hours.filter((h) => h.key >= best.startKey && h.key <= best.endKey);
+  const opposingHour = scope.find((h) => h.opposing && h.current !== null);
   return {
     available: true,
     label: target.label,
@@ -68,5 +74,6 @@ export function windowForecast(outlook: ZoneOutlook, target: TargetWindow): Fore
     currentPhase: strongest ? (strongest.current! < 0 ? "ebb" : "flood") : null,
     verdict,
     opposingWind: scope.some((h) => h.opposing),
+    opposingPhase: opposingHour ? (opposingHour.current! < 0 ? "ebb" : "flood") : null,
   };
 }

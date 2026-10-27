@@ -39,6 +39,22 @@ describe("windowForecast", () => {
     const outlook = buildZoneOutlook(inputs(), "lower-hudson", "experienced", NOW);
     expect(windowForecast(outlook, resolveWindow("conditions", NOW)).hours).toBe(12);
   });
+  it("is unavailable, not calm, when no hour in the window has wind", () => {
+    const i = inputs(); i.zones.find((z) => z.zoneId === "lower-hudson")!.wind = null;
+    const target = resolveWindow("tomorrow morning", NOW);
+    const f = windowForecast(buildZoneOutlook(i, "lower-hudson", "experienced", NOW, nyWallToDate(target.date, target.startHour)), target);
+    expect(f).toMatchObject({ available: false, windKnots: null });
+  });
+  it("names the phase the wind opposes (ebb or flood)", () => {
+    const i = inputs(); const z = i.zones.find((x) => x.zoneId === "lower-hudson")!;
+    z.current = z.current!.map((c) => ({ ...c, signed: -1, towardDeg: 0 })); // ebb flowing toward N
+    z.wind!.periods = z.wind!.periods.map((p) => ({ ...p, fromDeg: 5, direction: "N" })); // from N against the northward ebb
+    const target = resolveWindow("tomorrow morning", NOW);
+    const f = windowForecast(buildZoneOutlook(i, "lower-hudson", "experienced", NOW, nyWallToDate(target.date, target.startHour)), target);
+    expect(f).toMatchObject({ opposingWind: true, opposingPhase: "ebb" });
+    z.current = z.current.map((c) => ({ ...c, signed: 1, towardDeg: 0 }));
+    expect(windowForecast(buildZoneOutlook(i, "lower-hudson", "experienced", NOW, nyWallToDate(target.date, target.startHour)), target).opposingPhase).toBe("flood");
+  });
   it("is unavailable when no hours fall in the window", () => {
     const outlook = buildZoneOutlook(inputs(), "lower-hudson", "experienced", NOW);
     const f = windowForecast(outlook, { label: "x", date: "2030-01-01", startHour: 6, endHour: 11, isNow: false });
