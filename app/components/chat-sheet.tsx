@@ -12,16 +12,6 @@ import type { Trip } from "@/lib/trips";
 import type { Verdict } from "@/lib/verdict";
 import type { ZoneId } from "@/lib/zones";
 
-type ReplyCard = {
-  headline: string;
-  stats: { value: string; label: string; feel: string }[];
-  launch: { time: string; why: string } | null;
-  note: string;
-  action: { label: string; hccb: boolean };
-};
-
-const HCCB_URL = "https://sites.google.com/hobokencoveboathouse.org/hccb/home";
-
 const feelFor = (knots: number) =>
   knots < 4 ? "glass — barely a ripple" :
   knots < 7 ? "soft ripples, easy water" :
@@ -178,47 +168,6 @@ function CurrentTimeline({ hours, current, title }: { hours: HourView[]; current
         </p>
       )}
       {current.caption && <p className="guide-note tide-quip">"{current.caption}"</p>}
-    </div>
-  );
-}
-
-function CardReply({ card, verdict, hours, best, windowLabel, current, onAsk }: { card: ReplyCard; verdict?: Verdict | null; hours?: HourView[]; best?: BestWindow | null; windowLabel?: string; current?: CurrentNow | null; onAsk: (q: string) => void }) {
-  const theme = verdict ? verdictTheme[verdict] : undefined;
-  return (
-    <div className="reply card-reply" style={{ "--verdict-color": theme?.color } as React.CSSProperties}>
-      <div className="reply-topbar">
-        {theme && <span className="verdict-chip">{theme.word}</span>}
-        <span>Paddle Agent briefing</span>
-      </div>
-      <div className="reply-body">
-        <p className="reply-headline">{card.headline}</p>
-        <div className="stat-row">
-          {card.stats.map((stat) => (
-            <div className="stat-chip" key={stat.label}>
-              <strong>{stat.value}</strong>
-              <span>{stat.label}</span>
-              <em>{stat.feel}</em>
-            </div>
-          ))}
-          {card.launch && (
-            <div className="stat-chip launch">
-              <strong>{card.launch.time}</strong>
-              <span>launch</span>
-              <em>{card.launch.why}</em>
-            </div>
-          )}
-        </div>
-        {hours && hours.length > 0 && <PaddleTimeline hours={hours} best={best} title={windowLabel} />}
-        {current && hours && hours.some((h) => h.current != null) && <CurrentTimeline hours={hours} current={current} title={windowLabel} />}
-        <p className="guide-note">“{card.note}”</p>
-        <div className="action-row">
-          {card.action.hccb ? (
-            <a className="action-btn" href={HCCB_URL} target="_blank" rel="noreferrer">{card.action.label} ↗</a>
-          ) : (
-            <button type="button" className="action-btn" onClick={() => onAsk("Give me the latest read before I launch")}>{card.action.label}</button>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -391,12 +340,14 @@ export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute,
     void sendMessage({ text: question }, { body: { zoneId, mode, trips } });
   };
 
+  useEffect(() => { if (!open) asked.current = null; }, [open]);
+
   useEffect(() => {
-    if (open && initialQuestion && asked.current !== initialQuestion) {
+    if (open && !loading && initialQuestion && asked.current !== initialQuestion) {
       asked.current = initialQuestion;
       void sendMessage({ text: initialQuestion }, { body: { zoneId, mode, trips } });
     }
-  }, [open, initialQuestion, sendMessage, zoneId, mode, trips]);
+  }, [open, loading, initialQuestion, sendMessage, zoneId, mode, trips]);
 
   if (!open) return null;
 
@@ -406,9 +357,13 @@ export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute,
     .join("");
 
   return <section className="chat">
+    <header className="chat-head">
+      <h2>Ask the guide</h2>
+      <button type="button" className="chat-close" onClick={onClose}>Close</button>
+    </header>
+
     <div className="prompts">
       {prompts.map((prompt) => <button key={prompt} onClick={() => ask(prompt)} disabled={loading}>{prompt}</button>)}
-      <button type="button" onClick={onClose}>Close</button>
     </div>
 
     <div className="messages">

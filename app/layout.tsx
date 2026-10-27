@@ -7,8 +7,8 @@ const body = Schibsted_Grotesk({ subsets: ["latin"], variable: "--font-body" });
 const mono = Azeret_Mono({ weight: ["400", "500", "600"], subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: "Paddle Agent — Hudson River paddling intelligence",
-  description: "Live Hudson River conditions from ClickHouse, briefed into one honest answer: should you launch?",
+  title: "Paddle Agent — Hudson & East River paddling conditions",
+  description: "Live wind, current and warnings for NYC's Hudson and East River, turned into one honest answer for first-season paddlers: should you launch?",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
