@@ -11,7 +11,6 @@ import { PLACES, ZONES, zoneById, type LonLat, type ZoneId } from "@/lib/zones";
 
 export type PaddleMapProps = {
   outlooks: Record<ZoneId, ZoneOutlook>; selectedKey: string; zoneId: ZoneId; trips: Trip[];
-  // Drawn by Task 14; accepted now so callers do not change later.
   route: RoutePlan | null;
   interactive: boolean;
   onPickZone?: (z: ZoneId) => void;
@@ -28,6 +27,7 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
 const NAVY = "#0d3349";
 const VERDICT_COLOR: Record<Verdict, string> = { safe: "#1e9e57", caution: "#dd8a00", danger: "#e03e3e", unknown: "#c9d3d9" };
 const VERDICT_WORD: Record<Verdict, string> = { safe: "GO", caution: "CAUTION", danger: "NO-GO", unknown: "No verdict" };
+const ROUTE_COLOR = VERDICT_COLOR;
 const RATING_COLOR = { calm: "#1e9e57", moderate: "#dd8a00", rough: "#e03e3e" };
 
 const hourAt = (o: ZoneOutlook, key: string): HourView | undefined => o.hours.find((h) => h.key === key) ?? o.hours[0];
@@ -75,6 +75,7 @@ export default function PaddleMap(props: PaddleMapProps) {
     let dynamic: maplibregl.Marker[] = [];
     let ready = false;
     let fellBack = false;
+    let drawnKey = "";
 
     const popupFor = (placeId: string): HTMLElement => {
       const p = PLACES.find((x) => x.id === placeId)!;
@@ -125,6 +126,23 @@ export default function PaddleMap(props: PaddleMapProps) {
       });
       (map.getSource("zones") as maplibregl.GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features });
 
+      const route = latest.current.route;
+      (map.getSource("route") as maplibregl.GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: (route?.segments ?? []).map((s) => ({
+          type: "Feature" as const, properties: { color: ROUTE_COLOR[s.risk], dashed: s.kind === "crossing" },
+          geometry: { type: "LineString" as const, coordinates: [s.from, s.to] },
+        })),
+      });
+      // Frame a newly planned route once; slider and data refreshes leave the view alone.
+      const key = route ? `${route.request.fromId}|${route.request.toId}|${!!route.request.outAndBack}` : "";
+      if (route && key !== drawnKey) {
+        const b = new maplibregl.LngLatBounds();
+        for (const s of route.segments) { b.extend(s.from); b.extend(s.to); }
+        if (!b.isEmpty()) map.fitBounds(b, { padding: interactive ? 60 : 16, maxZoom: 14, duration: 0 });
+      }
+      drawnKey = key;
+
       for (const m of dynamic) m.remove();
       dynamic = [];
       if (!interactive) return;
@@ -160,6 +178,13 @@ export default function PaddleMap(props: PaddleMapProps) {
         map.addSource("zones", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({ id: "zones-fill", type: "fill", source: "zones", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.45 } });
         map.addLayer({ id: "zones-line", type: "line", source: "zones", paint: { "line-color": NAVY, "line-width": ["case", ["get", "selected"], 2, 0] } });
+      }
+      if (!map.getSource("route")) {
+        map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({ id: "route-solid", type: "line", source: "route", filter: ["!", ["get", "dashed"]], layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": ["get", "color"], "line-width": 4 } });
+        map.addLayer({ id: "route-dashed", type: "line", source: "route", filter: ["get", "dashed"],
+          paint: { "line-color": ["get", "color"], "line-width": 4, "line-dasharray": [1.5, 1.5] } });
       }
       ready = true;
       run();

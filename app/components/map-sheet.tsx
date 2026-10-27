@@ -9,7 +9,7 @@ export const PaddleMapLazy = dynamic(() => import("./paddle-map"), { ssr: false,
 
 type Props = Omit<PaddleMapProps, "interactive" | "selectedKey"> & {
   open: boolean; onClose: () => void; selectedKey: string | null; onSelectKey: (key: string) => void;
-  // Route panel (Task 14).
+  // The route planner, under the slider.
   children?: ReactNode;
 };
 

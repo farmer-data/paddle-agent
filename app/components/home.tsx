@@ -5,10 +5,11 @@ import type { Mode } from "@/lib/config";
 import { buildZoneOutlook, type OutlookInputs, type ZoneOutlook } from "@/lib/outlook";
 import type { RoutePlan } from "@/lib/route/plan";
 import { deleteTrip, loadPref, loadTrips, MODE_KEY, saveTrip, savePref, ZONE_KEY, type Trip } from "@/lib/trips";
-import { DEFAULT_ZONE, isZoneId, nearestZone, ZONES, type ZoneId } from "@/lib/zones";
+import { DEFAULT_ZONE, isZoneId, nearestZone, PLACES, ZONES, type ZoneId } from "@/lib/zones";
 import { ChatSheet } from "./chat-sheet";
 import { HourStrip } from "./hour-strip";
 import { MapSheet, PaddleMapLazy } from "./map-sheet";
+import { RoutePanel } from "./route-panel";
 import { TopBar } from "./top-bar";
 import { TripsSheet } from "./trips-sheet";
 import { FactorChips, VerdictCard } from "./verdict-card";
@@ -27,8 +28,9 @@ export function Home() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [sheet, setSheet] = useState<Sheet>(null);
-  // Passed to the map; drawn by Task 14.
   const [activeRoute, setActiveRoute] = useState<RoutePlan | null>(null);
+  // Remounts the route panel (key) when something outside it sets the route: the chat, a map popup or a ?from=&to= link.
+  const [seed, setSeed] = useState<{ from?: string; to?: string; n: number }>({ n: 0 });
   const [minute, setMinute] = useState(0);
   const [locNote, setLocNote] = useState<string | null>(null);
   const [wide, setWide] = useState(false);
@@ -39,6 +41,11 @@ export function Home() {
     setMode(loadPref(MODE_KEY, isMode, "beginner"));
     setZoneId(loadPref(ZONE_KEY, isZoneId, DEFAULT_ZONE));
     setTrips(loadTrips());
+    // Deep link: /?from=pier-40&to=intrepid opens the planner with both filled in.
+    const q = new URLSearchParams(location.search);
+    const known = (id: string | null) => (id && PLACES.some((p) => p.id === id) ? id : undefined);
+    const from = known(q.get("from")), to = known(q.get("to"));
+    if (from || to) { setSeed({ from, to, n: 1 }); setSheet("map"); }
   }, []);
 
   useEffect(() => {
@@ -113,6 +120,19 @@ export function Home() {
   }, []);
   const onDelete = (id: string) => { deleteTrip(id); setTrips((prev) => prev.filter((t) => t.tripId !== id)); };
   const closeSheet = useCallback(() => setSheet(null), []);
+  // The chat planned a route: show it. On a phone the map sheet replaces the chat sheet; on desktop both stay visible.
+  const showRoute = useCallback((plan: RoutePlan) => {
+    setActiveRoute(plan);
+    setSeed((s) => ({ n: s.n + 1 }));
+    if (!window.matchMedia("(min-width: 900px)").matches) setSheet("map");
+  }, []);
+  const planFrom = useCallback((placeId: string) => {
+    setActiveRoute(null);
+    setSeed((s) => ({ from: placeId, n: s.n + 1 }));
+  }, []);
+  const routePanel = outlooks && (
+    <RoutePanel key={seed.n} outlooks={outlooks} mode={mode} initialFrom={seed.from} initialTo={seed.to} initial={activeRoute?.request ?? null} onPlan={setActiveRoute} />
+  );
 
   return (
     <main className="home">
@@ -123,7 +143,7 @@ export function Home() {
         {outlooks && wide && (
           <div className="home-map">
             <MapSheet open outlooks={outlooks} zoneId={zoneId} selectedKey={selectedKey} onSelectKey={setSelectedKey} trips={trips} route={activeRoute}
-              onPickZone={(z) => changeZone(z, true)} onClose={closeSheet} />
+              onPickZone={(z) => changeZone(z, true)} onPlanFrom={planFrom} onClose={closeSheet}>{routePanel}</MapSheet>
           </div>
         )}
         {!wide && (
@@ -151,7 +171,7 @@ export function Home() {
             </>
           )}
           <div className="home-chat">
-            <ChatSheet open={sheet === "chat" || wide} onClose={closeSheet} zoneId={zoneId} mode={mode} trips={trips} onTrip={onTrip} onRoute={setActiveRoute} />
+            <ChatSheet open={sheet === "chat" || wide} onClose={closeSheet} zoneId={zoneId} mode={mode} trips={trips} onTrip={onTrip} onRoute={showRoute} />
           </div>
         </div>
       </div>
@@ -179,7 +199,7 @@ export function Home() {
       </nav>
       {outlooks && !wide && sheet === "map" && (
         <MapSheet open outlooks={outlooks} zoneId={zoneId} selectedKey={selectedKey} onSelectKey={setSelectedKey} trips={trips} route={activeRoute}
-          onPickZone={(z) => { changeZone(z, true); closeSheet(); }} onClose={closeSheet} />
+          onPickZone={(z) => { changeZone(z, true); closeSheet(); }} onPlanFrom={planFrom} onClose={closeSheet}>{routePanel}</MapSheet>
       )}
       <TripsSheet open={sheet === "trips"} onClose={closeSheet} trips={trips} onDelete={onDelete} />
     </main>

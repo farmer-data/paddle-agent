@@ -9,7 +9,7 @@ export const VERDICT_THEME: Record<Verdict, { color: string; text?: string; emoj
   unknown: { color: "#c9d3d9", text: "var(--muted)", emoji: "⚪", word: "No verdict" },
 };
 
-const clock = (stamp: string) => {
+export const clock = (stamp: string) => {
   const h = Number(stamp.slice(11, 13));
   return `${h % 12 === 0 ? 12 : h % 12}:${stamp.slice(14, 16)} ${h < 12 ? "AM" : "PM"}`;
 };
