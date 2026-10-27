@@ -48,7 +48,7 @@ export function windowForecast(outlook: ZoneOutlook, target: TargetWindow): Fore
     ? outlook.hours.slice(0, 12)
     : outlook.hours.filter((h) => h.key.slice(0, 10) === target.date && Number(h.key.slice(11)) >= target.startHour && Number(h.key.slice(11)) < target.endHour);
   if (!hours.length) {
-    return { available: false, label: target.label, date: target.date, hours: 0, windKnots: 0, windDirection: "", currentKnots: null, currentPhase: null, verdict: null, opposingWind: false, opposingPhase: null };
+    return { available: false, label: target.label, date: target.date, hours: 0, windKnots: null, windDirection: "", currentKnots: null, currentPhase: null, verdict: null, opposingWind: false, opposingPhase: null };
   }
   const withWind = hours.filter((h) => h.windKnots !== null);
   // Missing wind is not calm: with no wind in the window there is nothing to compare.

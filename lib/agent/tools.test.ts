@@ -71,6 +71,12 @@ describe("paddle tools", () => {
     expect(out.forecast.windKnots).toBeNull();
     expect(out.note).toMatch(/wind unavailable/i);
   });
+  it("compare_rough_trips passes an hour-less window through as unavailable with null figures, never 0", async () => {
+    const out: any = await createPaddleTools({ ...ctx, loadInputs: vi.fn(async () => ({ ...inputs(), zones: [] })), inputs: { ...inputs(), zones: [] } }).compare_rough_trips.execute!({ when: "tomorrow morning" }, opts);
+    expect(out.available).toBe(false);
+    expect(out.forecast.windKnots).toBeNull();
+    expect(out.forecast.currentKnots).toBeNull();
+  });
   it("plan_route turns planner errors into tool errors instead of throwing", async () => {
     const out: any = await createPaddleTools(ctx).plan_route.execute!({ from: "pier 40", to: "pier 40" }, opts);
     expect(out.error).toMatch(/same place/i);

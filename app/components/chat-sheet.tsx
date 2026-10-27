@@ -201,7 +201,7 @@ function TripSavedCard({ trip }: { trip: Trip }) {
 function ComparisonCard({ data }: { data: PaddleComparisonData }) {
   const { forecast, rough, trips } = data;
   const theme = forecast.verdict ? verdictTheme[forecast.verdict] : undefined;
-  const delta = forecast.windKnots !== null && rough.rough_trips > 0 ? forecast.windKnots - rough.median_wind : null;
+  const delta = forecast.available && forecast.windKnots !== null && rough.rough_trips > 0 ? forecast.windKnots - rough.median_wind : null;
   return (
     <div className="compare-card" style={{ "--risk-color": theme?.color ?? "var(--faint)" } as React.CSSProperties}>
       <div className="compare-head">
@@ -211,7 +211,7 @@ function ComparisonCard({ data }: { data: PaddleComparisonData }) {
       <div className="compare-columns">
         <div className="compare-col">
           <span className="compare-label">{forecast.label}</span>
-          <strong className="compare-value">{forecast.windKnots !== null ? `${forecast.windKnots.toFixed(1)} kn` : "wind unavailable"}</strong>
+          <strong className="compare-value">{forecast.available && forecast.windKnots !== null ? `${forecast.windKnots.toFixed(1)} kn` : forecast.available ? "wind unavailable" : "—"}</strong>
           <em>{forecast.available && forecast.windKnots !== null ? `${forecast.windDirection} wind${forecast.currentPhase ? ` · ${forecast.currentPhase}` : ""}` : "forecast unavailable"}</em>
         </div>
         <div className="compare-vs">{delta === null ? "vs" : delta < 0 ? "↓" : "↑"}</div>

@@ -59,5 +59,6 @@ describe("windowForecast", () => {
     const outlook = buildZoneOutlook(inputs(), "lower-hudson", "experienced", NOW);
     const f = windowForecast(outlook, { label: "x", date: "2030-01-01", startHour: 6, endHour: 11, isNow: false });
     expect(f.available).toBe(false);
+    expect(f.windKnots).toBeNull(); expect(f.currentKnots).toBeNull();
   });
 });
