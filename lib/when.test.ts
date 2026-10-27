@@ -2,9 +2,20 @@ import { describe, expect, it } from "vitest";
 import { resolveWindow } from "./when";
 
 // 2026-07-21 is a Tuesday.
-const TUE_9AM = new Date(2026, 6, 21, 9, 0);
+const TUE_9AM = new Date("2026-07-21T13:00:00Z");
 
 describe("resolveWindow", () => {
+  it("resolves 'tomorrow' from New York's date, not UTC's", () => {
+    expect(resolveWindow("tomorrow morning", new Date("2026-07-26T02:00:00Z"))).toMatchObject({ date: "2026-07-26", startHour: 6 }); // 22:00 NY on Jul 25
+  });
+
+  it("uses New York's hour and weekday for 'now'", () => {
+    const w = resolveWindow("conditions?", new Date("2026-07-26T02:00:00Z"));
+    expect(w).toMatchObject({ isNow: true, date: "2026-07-25", startHour: 22 });
+    // Saturday 22:00 NY: 'sunday' is tomorrow, not today (UTC says it is already Sunday).
+    expect(resolveWindow("sunday", new Date("2026-07-26T02:00:00Z")).date).toBe("2026-07-26");
+  });
+
   it("resolves 'Sunday morning' to the coming Sunday, 6-11", () => {
     const w = resolveWindow("Can I paddle Sunday morning with a beginner?", TUE_9AM);
     expect(w).toMatchObject({ date: "2026-07-26", startHour: 6, endHour: 11, isNow: false, label: "Sunday morning" });

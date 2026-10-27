@@ -1,6 +1,8 @@
+import { addDays, nyParts } from "./time";
+
 export type TargetWindow = {
   label: string;
-  date: string; // YYYY-MM-DD (local)
+  date: string; // YYYY-MM-DD (New York)
   startHour: number; // inclusive
   endHour: number; // exclusive
   isNow: boolean;
@@ -16,16 +18,10 @@ const DAYPARTS: Record<string, [number, number, string]> = {
   evening: [17, 20, "evening"],
 };
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const toDateStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const addDays = (d: Date, days: number) => {
-  const x = new Date(d);
-  x.setDate(x.getDate() + days);
-  return x;
-};
 
 export function resolveWindow(question: string, now: Date = new Date()): TargetWindow {
   const q = question.toLowerCase();
+  const ny = nyParts(now);
 
   let daypart: [number, number, string] | null = null;
   for (const key of Object.keys(DAYPARTS)) {
@@ -40,13 +36,13 @@ export function resolveWindow(question: string, now: Date = new Date()): TargetW
   } else if (/\btoday\b/.test(q)) {
     offset = 0; dayLabel = "today";
   } else if (/\bweekend\b/.test(q)) {
-    const dow = now.getDay(); // 0 Sun .. 6 Sat
+    const dow = ny.dow; // 0 Sun .. 6 Sat
     offset = dow === 0 ? 0 : 6 - dow; // Sunday -> today (Sun); otherwise days to Saturday
     dayLabel = dow === 0 ? "Sunday" : "Saturday";
   } else {
     for (let i = 0; i < WEEKDAYS.length; i++) {
       if (new RegExp(`\\b${WEEKDAYS[i]}\\b`).test(q)) {
-        let diff = (i - now.getDay() + 7) % 7; // 0..6, 0 == today
+        let diff = (i - ny.dow + 7) % 7; // 0..6, 0 == today
         if (/\bnext\b/.test(q)) diff += 7;
         offset = diff;
         dayLabel = WEEKDAYS[i][0].toUpperCase() + WEEKDAYS[i].slice(1);
@@ -61,10 +57,10 @@ export function resolveWindow(question: string, now: Date = new Date()): TargetW
   const isNow = !daypart && (offset === null || dayLabel === "today");
 
   if (isNow) {
-    return { label: "the next 12 hours", date: toDateStr(now), startHour: now.getHours(), endHour: now.getHours(), isNow: true };
+    return { label: "the next 12 hours", date: ny.date, startHour: ny.hour, endHour: ny.hour, isNow: true };
   }
 
-  const date = toDateStr(addDays(now, offset ?? 0));
+  const date = addDays(ny.date, offset ?? 0);
   const [startHour, endHour, dpLabel] = daypart ?? [6, 20, ""];
   const dl = dayLabel || "today";
   const label = dpLabel ? `${dl} ${dpLabel}` : dl;
