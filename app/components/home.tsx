@@ -44,7 +44,7 @@ export function Home() {
     // Deep link: /?from=pier-40&to=intrepid opens the planner with both filled in.
     const q = new URLSearchParams(location.search);
     const known = (id: string | null) => (id && PLACES.some((p) => p.id === id) ? id : undefined);
-    const from = known(q.get("from")), to = known(q.get("to"));
+    const from = PLACES.find((p) => p.kind === "launch" && p.id === q.get("from"))?.id, to = known(q.get("to"));
     if (from || to) { setSeed({ from, to, n: 1 }); setSheet("map"); }
   }, []);
 

@@ -9,8 +9,10 @@ import { PLACES, type ZoneId } from "@/lib/zones";
 import { clock, VERDICT_THEME } from "./verdict-card";
 
 const LAUNCHES = PLACES.filter((p) => p.kind === "launch");
+const launchId = (id?: string) => (LAUNCHES.some((p) => p.id === id) ? id : undefined);
 const LANDMARKS = PLACES.filter((p) => p.kind === "landmark");
 const duration = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`);
+const CAVEAT = "Planning estimate, not a guarantee of safe passage.";
 const isBlockMessage = (w: string) => w.toLowerCase().includes("not for first-season");
 
 export function RoutePanel({ outlooks, mode, initialFrom, initialTo, initial, onPlan }: {
@@ -19,11 +21,11 @@ export function RoutePanel({ outlooks, mode, initialFrom, initialTo, initial, on
   initial?: RouteRequest | null; onPlan: (p: RoutePlan | null) => void;
 }) {
   const [open, setOpen] = useState(!!(initialFrom || initialTo || initial));
-  const [from, setFrom] = useState(initial?.fromId ?? initialFrom ?? "");
+  const [from, setFrom] = useState(launchId(initial?.fromId) ?? launchId(initialFrom) ?? "");
   const [to, setTo] = useState(initial?.toId ?? initialTo ?? "");
   const [depart, setDepart] = useState(initial?.depart ?? "");
   const [outAndBack, setOutAndBack] = useState(!!initial?.outAndBack);
-  const [turnaround, setTurnaround] = useState(initial?.turnaround ?? "");
+  const [turnaroundPick, setTurnaround] = useState(initial?.turnaround ?? "");
   const onPlanRef = useRef(onPlan);
   useEffect(() => { onPlanRef.current = onPlan; });
 
@@ -39,6 +41,9 @@ export function RoutePanel({ outlooks, mode, initialFrom, initialTo, initial, on
   const effDepart = depart || defaultDepart;
   const departList = !effDepart || options.includes(effDepart) ? options : [effDepart, ...options];
   const turnList = departList.filter((s) => wallMinutes(s) > wallMinutes(effDepart));
+  // A picked turnaround counts only while it is still after Depart; off-grid chat values stay selectable.
+  const turnaround = turnaroundPick && wallMinutes(turnaroundPick) > wallMinutes(effDepart) ? turnaroundPick : "";
+  const turnOptions = turnaround && !turnList.includes(turnaround) ? [turnaround, ...turnList] : turnList;
   const dayWord = (s: string) => (s.slice(0, 10) === now.slice(0, 10) ? "" : "Tomorrow ");
 
   const { plan, error } = useMemo<{ plan: RoutePlan | null; error: string | null }>(() => {
@@ -90,7 +95,7 @@ export function RoutePanel({ outlooks, mode, initialFrom, initialTo, initial, on
             <label>Turn around
               <select value={turnaround} onChange={(e) => setTurnaround(e.target.value)}>
                 <option value="">Straight back</option>
-                {turnList.map((s) => <option key={s} value={s}>{dayWord(s)}{clock(s)}</option>)}
+                {turnOptions.map((s) => <option key={s} value={s}>{dayWord(s)}{clock(s)}</option>)}
               </select>
             </label>
           )}
@@ -114,9 +119,9 @@ export function RoutePanel({ outlooks, mode, initialFrom, initialTo, initial, on
                   <button type="button" onClick={() => setDepart(plan.suggestion!.depart)}>Use this time</button>
                 </p>
               )}
-              <p className="route-caveat">{plan.caveat}</p>
             </div>
           )}
+          <p className="route-caveat">{CAVEAT}</p>
         </div>
       )}
     </div>
