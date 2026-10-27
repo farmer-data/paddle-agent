@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",
+    "@ai-sdk/openai-compatible": "2.0.62",
     "@ai-sdk/react": "^3.0.0",
     "@clickhouse/client": "^1.14.0",
     "@trigger.dev/sdk": "^4.5.4",
