@@ -1,7 +1,7 @@
 # Paddle Agent public demo: simpler stack, two rivers, map — Design
 
 **Date:** 2026-10-27
-**Status:** Draft for approval
+**Status:** Approved — implemented on branch public-demo
 **Live site:** https://paddle-agent.vercel.app (stays on Vercel)
 
 ## Why
