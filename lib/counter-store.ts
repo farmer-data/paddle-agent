@@ -91,12 +91,18 @@ export function redisStore(url: string): CounterStore {
   };
 }
 
+let devStore: CounterStore | undefined;
+
 // Production uses Redis (REDIS_URL from the Vercel Marketplace integration); without it, production returns null and the chat fails closed.
 export function counterStoreFromEnv(env: NodeJS.ProcessEnv): CounterStore | null {
   if (typeof env.REDIS_URL === "string" && env.REDIS_URL !== "") return redisStore(env.REDIS_URL);
   if (env.NODE_ENV !== "production") {
-    console.warn("[rate-limit] No counter store configured; using in-memory counters (development only).");
-    return memoryStore();
+    // One store per server instance, so dev counters accumulate across requests, and the warning is logged once.
+    if (!devStore) {
+      console.warn("[rate-limit] No counter store configured; using in-memory counters (development only).");
+      devStore = memoryStore();
+    }
+    return devStore;
   }
   return null;
 }

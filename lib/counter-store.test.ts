@@ -49,6 +49,18 @@ describe("counterStoreFromEnv with REDIS_URL", () => {
     expect(clients[0].connect).toHaveBeenCalledTimes(1);
   });
 
+  it("in development reuses one in-memory store across calls (counters accumulate) and warns once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { counterStoreFromEnv } = await load();
+    const env = { NODE_ENV: "development" } as NodeJS.ProcessEnv;
+    const first = counterStoreFromEnv(env)!;
+    const second = counterStoreFromEnv(env)!;
+    expect(second).toBe(first);
+    expect(await first.incr("k", 60)).toBe(1);
+    expect(await second.incr("k", 60)).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores an empty REDIS_URL", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { counterStoreFromEnv } = await load();
