@@ -72,7 +72,6 @@ const clockLabel = (mins: number) => {
   const h = Math.floor(mins / 60);
   return `${h % 12 === 0 ? 12 : h % 12}:${String(mins % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 };
-const minutesOf = (ts: string) => Number(ts.slice(11, 13)) * 60 + Number(ts.slice(14, 16));
 
 export function summarizeCurrent(points: CurrentPoint[], startKey: string, endKey: string): CurrentSummary {
   const series = points.map((p) => ({ ts: p.ts, key: hourKey(p.ts), signed: p.signed })).sort((a, b) => a.ts.localeCompare(b.ts));
@@ -91,7 +90,7 @@ export function summarizeCurrent(points: CurrentPoint[], startKey: string, endKe
     if (a.signed === 0 || b.signed === 0) continue;
     if (a.signed < 0 !== b.signed < 0) {
       const frac = Math.abs(a.signed) / (Math.abs(a.signed) + Math.abs(b.signed));
-      nextTurn = { atLabel: clockLabel(Math.round(minutesOf(a.ts) + frac * (minutesOf(b.ts) - minutesOf(a.ts)))), toPhase: b.signed < 0 ? "ebb" : "flood" };
+      nextTurn = { atLabel: clockLabel(Math.round(wallMinutes(a.ts) + frac * (wallMinutes(b.ts) - wallMinutes(a.ts))) % 1440), toPhase: b.signed < 0 ? "ebb" : "flood" };
       break;
     }
   }
@@ -107,7 +106,9 @@ export function buildZoneOutlook(inputs: OutlookInputs, zoneId: ZoneId, mode: Mo
   const zone = zoneById(zoneId);
   const zi = inputs.zones.find((z) => z.zoneId === zoneId) ?? { zoneId, wind: null, current: null, alerts: null };
 
-  const windStale = !zi.wind || now.getTime() - Date.parse(zi.wind.updatedAt) > CONFIG.maxAge.forecastHours * 3_600_000;
+  const windAgeMs = zi.wind ? now.getTime() - Date.parse(zi.wind.updatedAt) : NaN;
+  // Fail closed: unparseable or future-dated (beyond 5 min of clock skew) timestamps are unusable.
+  const windStale = !(windAgeMs >= -300_000 && windAgeMs <= CONFIG.maxAge.forecastHours * 3_600_000);
   const windByKey = new Map<string, WindPeriod>();
   for (const p of windStale ? [] : zi.wind!.periods) if (!windByKey.has(hourKey(p.ts))) windByKey.set(hourKey(p.ts), p);
   const currentByKey = new Map<string, CurrentPoint>();

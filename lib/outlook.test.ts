@@ -31,6 +31,13 @@ describe("buildZoneOutlook", () => {
     expect(buildZoneOutlook(noCurrent, "lower-east", "beginner", NOW).unavailable).toEqual(["Couldn't reach NOAA currents"]);
     expect(buildZoneOutlook(noCurrent, "lower-hudson", "beginner", NOW).unavailable).toEqual([]);
   });
+  it("treats an unparseable or future-dated wind timestamp as missing", () => {
+    for (const windUpdatedAt of ["garbage", "2026-10-26T20:00:00Z"]) {
+      const o = buildZoneOutlook(inputs({ windUpdatedAt }), "lower-hudson", "beginner", NOW);
+      expect(o.hours.every((x) => x.missing.includes("wind"))).toBe(true);
+      expect(o.unavailable).toContain("Couldn't reach NWS wind forecast");
+    }
+  });
   it("survives the DST fall-back hour without duplicate keys", () => {
     const o = buildZoneOutlook(inputs({ from: "2026-10-31" }), "lower-hudson", "beginner", new Date("2026-11-01T03:00:00Z"));
     expect(new Set(o.hours.map((x) => x.key)).size).toBe(o.hours.length);
@@ -86,5 +93,9 @@ describe("summarizeCurrent", () => {
     expect(r.peakEbb).toEqual({ atLabel: "6 AM", knots: 1.2 });
     expect(r.peakFlood).toEqual({ atLabel: "9 AM", knots: 1.1 });
     expect(r.nextTurn).toMatchObject({ toPhase: "flood" });
+  });
+  it("interpolates a turn across midnight", () => {
+    const pts = [["2026-10-26 22:00", -1], ["2026-10-26 23:00", -0.5], ["2026-10-27 00:00", 1.5]].map(([ts, s]) => ({ ts: ts as string, signed: s as number, towardDeg: 10 }));
+    expect(summarizeCurrent(pts, "2026-10-26 22", "2026-10-27 00").nextTurn).toEqual({ atLabel: "11:15 PM", toPhase: "flood" });
   });
 });
