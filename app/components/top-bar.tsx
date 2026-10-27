@@ -21,7 +21,8 @@ export function TopBar({ mode, onMode, zoneId, onZone, onNear, updatedMinAgo, no
           <option value={NEAR}>📍 Near me</option>
         </select>
         <span className="fresh" aria-live="polite">
-          {note ?? (updatedMinAgo === null ? "" : updatedMinAgo < 1 ? "Updated just now" : `Updated ${updatedMinAgo} min ago`)}
+          {note && <>{note}{updatedMinAgo !== null && " · "}</>}
+          {updatedMinAgo === null ? "" : updatedMinAgo < 1 ? "Updated just now" : `Updated ${updatedMinAgo} min ago`}
         </span>
       </div>
     </header>

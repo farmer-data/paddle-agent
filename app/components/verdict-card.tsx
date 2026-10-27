@@ -2,11 +2,11 @@ import type { HourView, ZoneOutlook } from "@/lib/outlook";
 import { bestWindowText } from "@/lib/outlook";
 import type { Verdict } from "@/lib/verdict";
 
-export const VERDICT_THEME: Record<Verdict, { color: string; emoji: string; word: string }> = {
+export const VERDICT_THEME: Record<Verdict, { color: string; text?: string; emoji: string; word: string }> = {
   safe: { color: "var(--go)", emoji: "🟢", word: "GO" },
   caution: { color: "var(--caution)", emoji: "🟡", word: "CAUTION" },
   danger: { color: "var(--nogo)", emoji: "🔴", word: "NO-GO" },
-  unknown: { color: "#c9d3d9", emoji: "⚪", word: "No verdict" },
+  unknown: { color: "#c9d3d9", text: "var(--muted)", emoji: "⚪", word: "No verdict" },
 };
 
 const clock = (stamp: string) => {
@@ -36,7 +36,7 @@ export function VerdictCard({ outlook, hour, isNow, failed, onRetry }: {
   const lines = hour.risk === "unknown" && outlook.unavailable.length ? outlook.unavailable : hour.reasons.slice(0, 2);
   const best = bestWindowText(outlook.best, outlook.strip.label);
   return (
-    <section className="vcard" style={{ "--verdict-color": theme.color } as React.CSSProperties} aria-label="Verdict">
+    <section className="vcard" style={{ "--verdict-color": theme.color, "--verdict-text": theme.text ?? theme.color } as React.CSSProperties} aria-label="Verdict">
       <div className="vcard-meta">{outlook.zoneName} · {isNow ? "Now" : hour.hourLabel}</div>
       <h2 className="vcard-word">{theme.emoji} {theme.word}</h2>
       {lines.length > 0 && <ul className="vcard-reasons">{lines.map((l) => <li key={l}>{l}</li>)}</ul>}

@@ -86,13 +86,20 @@ export function Home() {
   const updatedMinAgo = inputs && minute ? Math.max(0, Math.round((minute - Date.parse(inputs.generatedAt)) / 60_000)) : null;
 
   const changeMode = (m: Mode) => { setMode(m); savePref(MODE_KEY, m); };
-  const changeZone = (z: ZoneId) => { setZoneId(z); setSelectedKey(null); setLocNote(null); savePref(ZONE_KEY, z); };
+  const changeZone = (z: ZoneId) => { setZoneId(z); setSelectedKey(null); if (noteTimer.current) clearTimeout(noteTimer.current); setLocNote(null); savePref(ZONE_KEY, z); };
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current); }, []);
+  const flashNote = (text: string) => {
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    setLocNote(text);
+    noteTimer.current = setTimeout(() => setLocNote(null), 5000);
+  };
   const nearMe = () => {
-    if (!navigator.geolocation) { setLocNote("Location unavailable"); return; }
-    setLocNote("Finding you…");
+    if (!navigator.geolocation) { flashNote("Location unavailable"); return; }
+    flashNote("Finding you…");
     navigator.geolocation.getCurrentPosition(
       (pos) => changeZone(nearestZone([pos.coords.longitude, pos.coords.latitude])),
-      () => setLocNote("Location unavailable"),
+      () => flashNote("Location unavailable"),
       { timeout: 10_000, maximumAge: 300_000 },
     );
   };

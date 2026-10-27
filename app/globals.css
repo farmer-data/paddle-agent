@@ -78,7 +78,7 @@ main.home { max-width: 1240px; margin: 0 auto; padding: 14px 16px 120px; }
 }
 .vcard::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 6px; background: var(--verdict-color, var(--faint)); }
 .vcard-meta { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
-.vcard-word { margin: 2px 0 0; font-family: var(--display); font-style: italic; font-weight: 400; font-size: 2.5rem; line-height: 1.05; color: var(--verdict-color, var(--ink)); }
+.vcard-word { margin: 2px 0 0; font-family: var(--display); font-style: italic; font-weight: 400; font-size: 2.5rem; line-height: 1.05; color: var(--verdict-text, var(--ink)); }
 .vcard-reasons { margin: 8px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.95rem; }
 .vcard-reasons li + li { margin-top: 3px; }
 .vcard-best { margin: 10px 0 0; font-weight: 600; color: var(--ink); }
