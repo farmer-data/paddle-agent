@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, hourKey, hourLabel, nyParts, nyStamp, sunTimes, wallMinutes, wallStamp } from "./time";
+import { addDays, hourKey, hourLabel, nyParts, nyStamp, nyWallToDate, sunTimes, wallMinutes, wallStamp } from "./time";
 
 describe("NY time helpers", () => {
   it("uses New York wall clock even when UTC is the next day", () => {
@@ -21,5 +21,11 @@ describe("NY time helpers", () => {
     expect(addDays("2026-10-31", 1)).toBe("2026-11-01");
     expect(addDays("2026-12-31", 2)).toBe("2027-01-02");
     expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
+  });
+  it("converts a NY wall hour to the right instant across DST", () => {
+    expect(nyWallToDate("2026-10-26", 12).toISOString()).toBe("2026-10-26T16:00:00.000Z");
+    expect(nyWallToDate("2026-12-01", 12).toISOString()).toBe("2026-12-01T17:00:00.000Z");
+    expect(nyWallToDate("2026-11-01", 1).toISOString()).toBe("2026-11-01T05:00:00.000Z"); // first of the repeated hours
+    expect(nyWallToDate("2026-11-01", 3).toISOString()).toBe("2026-11-01T08:00:00.000Z");
   });
 });

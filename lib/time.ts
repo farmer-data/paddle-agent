@@ -34,3 +34,15 @@ export function sunTimes(date: string, [lon, lat]: LonLat) {
   const t = getTimes(new Date(`${date}T17:00:00Z`), lat, lon);
   return { sunrise: nyStamp(t.sunrise!), sunset: nyStamp(t.sunset!) };
 }
+
+// The instant when New York's wall clock reads `date hour:00`. In the repeated fall-back hour this is the
+// first (EDT) occurrence; in the spring-forward gap it is the instant just after the gap.
+export function nyWallToDate(date: string, hour: number): Date {
+  const wall = Date.parse(`${date}T00:00:00Z`) + hour * 3_600_000;
+  const want = `${date} ${pad(hour)}:00`;
+  for (const offsetH of [4, 5]) {
+    const d = new Date(wall + offsetH * 3_600_000);
+    if (nyStamp(d) === want) return d;
+  }
+  return new Date(wall + 5 * 3_600_000);
+}
