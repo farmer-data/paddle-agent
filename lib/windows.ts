@@ -1,3 +1,4 @@
+import { DIRECTION_DEGREES } from "./sources";
 import type { CurrentPrediction } from "./sources";
 import { assessSafety, type Risk } from "./safety";
 import type { TargetWindow } from "./when";
@@ -6,7 +7,6 @@ export type HourlyRisk = { ts: string; hourLabel: string; windKnots: number; dir
 export type PaddleWindow = { startLabel: string; endLabel: string; startIndex: number; endIndex: number; risk: Risk };
 
 const rank: Record<Risk, number> = { safe: 0, caution: 1, danger: 2 };
-const directionDegrees: Record<string, number> = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 };
 
 // Both NWS ("2026-07-26T06:00:00-04:00") and NOAA ("2026-07-26 06:00") express Eastern
 // time, so slice a "YYYY-MM-DD HH" key from the string rather than doing TZ math.
@@ -32,7 +32,7 @@ export function buildHourlyOutlook(
       dischargeCfs: base.dischargeCfs,
       currentKnots: cur?.knots,
       windKnots: period.windKnots,
-      windDirection: directionDegrees[period.direction],
+      windDirection: DIRECTION_DEGREES[period.direction],
       currentDirection: cur?.direction ?? "ebb",
     });
     return {
