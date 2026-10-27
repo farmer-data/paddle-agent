@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { useTriggerChatTransport } from "@trigger.dev/sdk/chat/react";
+import { DefaultChatTransport } from "ai";
 import { Area, AreaChart, Bar, BarChart, Cell, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { mintChatAccessToken, startChatSession } from "@/app/actions";
-import type { PaddleBriefingData, PaddleChatUIMessage, PaddleComparisonData, PaddleTripData } from "@/lib/chat-types";
-import type { CurrentSummary, HourlyRisk, PaddleWindow } from "@/lib/windows";
+import type { PaddleBriefingData, PaddleChatUIMessage, PaddleComparisonData } from "@/lib/agent/types";
+import { CONFIG, type Mode } from "@/lib/config";
+import type { BestWindow, CurrentNow, HourView } from "@/lib/outlook";
+import type { RoutePlan } from "@/lib/route/plan";
+import type { Trip } from "@/lib/trips";
+import type { Verdict } from "@/lib/verdict";
+import type { ZoneId } from "@/lib/zones";
 
-type Condition = { parameter: string; value: number; ts: string };
-type Risk = "safe" | "caution" | "danger";
-type Assessment = { verdict: Risk; opposingWind: boolean; factors: { discharge: Risk; current: Risk; wind: Risk } };
-type Briefing = { summary: string; updatedAt: string; assessment?: Assessment };
 type ReplyCard = {
   headline: string;
   stats: { value: string; label: string; feel: string }[];
@@ -19,9 +19,6 @@ type ReplyCard = {
   note: string;
   action: { label: string; hccb: boolean };
 };
-type Forecast = { label: string; isNow: boolean; verdict: Risk | null; opposingWind: boolean };
-type CurrentInfo = { nowSigned: number | null; summary: CurrentSummary; caption: string };
-type Message = { role: "user" | "assistant"; text: string; pending?: boolean; card?: ReplyCard | null; verdict?: Risk | null; hourly?: HourlyRisk[]; window?: PaddleWindow | null; forecast?: Forecast | null; current?: CurrentInfo | null };
 
 const HCCB_URL = "https://sites.google.com/hobokencoveboathouse.org/hccb/home";
 
@@ -32,30 +29,26 @@ const feelFor = (knots: number) =>
   knots < 15 ? "working water — brace your stroke" : "whitecaps — stay ashore";
 
 const prompts = [
-  "Can I paddle Sunday morning with a beginner?",
-  "Find low-wind paddle windows",
-  "Show current Hudson conditions",
-  "Log today's Hoboken–Pier 66 paddle as rough.",
-  "How does Sunday's forecast compare with trips I rated rough?",
+  "Can I paddle now?",
+  "Best window today",
+  "Plan Pier 40 to the Intrepid",
+  "How does Sunday compare with my rough trips?",
 ];
 
-const verdictTheme: Record<Risk, { color: string; word: string }> = {
+const verdictTheme: Record<Verdict, { color: string; word: string }> = {
   safe: { color: "var(--go)", word: "GO" },
   caution: { color: "var(--caution)", word: "CAUTION" },
   danger: { color: "var(--nogo)", word: "NO-GO" },
+  unknown: { color: "#c9d3d9", word: "NO VERDICT" },
 };
 
-const gaugeSpecs = [
-  { key: "wind_speed", label: "Wind", unit: "kn", max: 22, caution: 10, danger: 15, factor: "wind" as const, format: (v: number) => v.toFixed(1) },
-  { key: "current_speed", label: "Current", unit: "kn", max: 3.5, caution: 1.5, danger: 2.5, factor: "current" as const, format: (v: number) => v.toFixed(1) },
-  { key: "discharge", label: "River flow", unit: "cfs", max: 32000, caution: 15000, danger: 25000, factor: "discharge" as const, format: (v: number) => Math.round(v).toLocaleString() },
-];
-
-const cardinal = (deg: number) =>
-  ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+const clock = (stamp: string) => {
+  const h = Number(stamp.slice(11, 13));
+  return `${h % 12 === 0 ? 12 : h % 12}:${stamp.slice(14, 16)} ${h < 12 ? "AM" : "PM"}`;
+};
 
 // ---- agent reply parsing --------------------------------------------------
-type ParsedReply = { verdict: Risk | null; headline: string; sections: { label: string; lines: string[] }[]; raw: string };
+type ParsedReply = { verdict: Verdict | null; headline: string; sections: { label: string; lines: string[] }[]; raw: string };
 const sectionPattern = /^(WHY IT MATTERS|BEST MOVE|GUIDE'S NOTE|NEXT ACTION)\b[\s:→\-—–]*(.*)$/;
 
 function parseReply(text: string): ParsedReply {
@@ -86,66 +79,28 @@ function parseReply(text: string): ParsedReply {
 }
 
 // ---- presentational pieces ------------------------------------------------
-function Gauge({ spec, value, risk }: { spec: (typeof gaugeSpecs)[number]; value?: number; risk?: Risk }) {
-  const theme = risk ? verdictTheme[risk] : undefined;
-  const fill = value === undefined ? 0 : Math.min(value / spec.max, 1) * 100;
-  return (
-    <div className="gauge" style={{ "--risk-color": theme?.color ?? "var(--faint)" } as React.CSSProperties}>
-      <div className="gauge-label"><span>{spec.label}</span><span className="gauge-risk">{risk ? verdictTheme[risk].word : "—"}</span></div>
-      <div className="gauge-value">{value === undefined ? "—" : spec.format(value)}<small>{spec.unit}</small></div>
-      <div className="gauge-track">
-        <span className="gauge-tick" style={{ left: `${(spec.caution / spec.max) * 100}%` }} />
-        <span className="gauge-tick danger" style={{ left: `${(spec.danger / spec.max) * 100}%` }} />
-        <div className="gauge-fill" style={{ width: `${fill}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function Compass({ deg }: { deg?: number }) {
-  return (
-    <div className="gauge compass">
-      <div className="gauge-label"><span>Wind from</span></div>
-      <div className="compass-face">
-        <svg width="60" height="60" viewBox="0 0 60 60">
-          <circle cx="30" cy="30" r="27" fill="none" stroke="var(--line-strong)" />
-          {["N", "E", "S", "W"].map((point, index) => (
-            <text key={point} x={30 + 22 * Math.sin((index * Math.PI) / 2)} y={31.5 - 22 * Math.cos((index * Math.PI) / 2)}
-              textAnchor="middle" dominantBaseline="middle" fill="var(--faint)" fontSize="7" fontFamily="var(--mono)">{point}</text>
-          ))}
-          {deg !== undefined && (
-            <g className="compass-needle" style={{ transform: `rotate(${deg}deg)` }}>
-              <polygon points="30,12 33,32 30,28 27,32" fill="var(--cyan)" />
-            </g>
-          )}
-        </svg>
-        <div className="compass-reading">
-          {deg === undefined ? "—" : `${cardinal(deg)} ${Math.round(deg)}°`}
-          <small>Robbins Reef</small>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PaddleTimeline({ hourly, window, title }: { hourly: HourlyRisk[]; window?: PaddleWindow | null; title?: string }) {
+function PaddleTimeline({ hours, best, title }: { hours: HourView[]; best?: BestWindow | null; title?: string }) {
   const [selected, setSelected] = useState<number | null>(null);
-  const picked = selected !== null ? hourly[selected] : null;
+  const picked = selected !== null ? hours[selected] : null;
+  const data = hours.map((h) => ({ ...h, bar: h.windKnots ?? 0 }));
+  const win = best && best.kind !== "none" ? best : null;
+  const winColor = win ? (win.kind === "green" ? "var(--go)" : "var(--caution)") : undefined;
+  const startLabel = win ? hours.find((h) => h.key === win.startKey)?.hourLabel : undefined;
+  const endLabel = win ? hours.find((h) => h.key === win.endKey)?.hourLabel : undefined;
   return (
     <div className="timeline">
       <div className="timeline-head">
-        <h4>{title ? `${title} · wind` : `Next ${hourly.length} hours · wind`}</h4>
-        {window && (
-          <span className="window-chip" style={{ "--risk-color": verdictTheme[window.risk].color } as React.CSSProperties}>
-            Best window {window.startLabel}–{window.endLabel}
+        <h4>{title ? `${title} · wind` : `Next ${hours.length} hours · wind`}</h4>
+        {win && (
+          <span className="window-chip" style={{ "--risk-color": winColor } as React.CSSProperties}>
+            {win.kind === "green" ? "Best window" : "Least risky"} {win.startLabel}–{win.endLabel}
           </span>
         )}
       </div>
       <ResponsiveContainer width="100%" height={132}>
-        <BarChart data={hourly} margin={{ top: 4, right: 4, bottom: 0, left: 4 }} barCategoryGap="22%">
-          {window && (
-            <ReferenceArea x1={hourly[window.startIndex].hourLabel} x2={hourly[window.endIndex].hourLabel}
-              fill={verdictTheme[window.risk].color} fillOpacity={0.12} stroke={verdictTheme[window.risk].color} strokeOpacity={0.35} strokeDasharray="3 3" />
+        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }} barCategoryGap="22%">
+          {win && startLabel && endLabel && (
+            <ReferenceArea x1={startLabel} x2={endLabel} fill={winColor} fillOpacity={0.12} stroke={winColor} strokeOpacity={0.35} strokeDasharray="3 3" />
           )}
           <ReferenceLine y={10} stroke="var(--caution)" strokeOpacity={0.4} strokeDasharray="4 4" />
           <ReferenceLine y={15} stroke="var(--nogo)" strokeOpacity={0.4} strokeDasharray="4 4" />
@@ -153,10 +108,13 @@ function PaddleTimeline({ hourly, window, title }: { hourly: HourlyRisk[]; windo
           <YAxis width={26} unit="" tickLine={false} axisLine={false} tick={{ fill: "var(--faint)", fontSize: 10, fontFamily: "var(--mono)" }} />
           <Tooltip cursor={{ fill: "rgba(27, 159, 216, 0.08)" }} contentStyle={{ background: "var(--deep)", border: "1px solid var(--line-strong)", borderRadius: 10, fontSize: 12, boxShadow: "0 10px 24px -14px rgba(13, 51, 73, 0.4)" }}
             labelStyle={{ color: "var(--muted)" }} itemStyle={{ color: "var(--text)" }}
-            formatter={(value, _name, item) => [`${value ?? "—"} kn ${(item?.payload as HourlyRisk | undefined)?.direction ?? ""}`, "wind"]} />
-          <Bar dataKey="windKnots" radius={[3, 3, 0, 0]} isAnimationActive={false} cursor="pointer"
+            formatter={(value, _name, item) => {
+              const hour = item?.payload as HourView | undefined;
+              return hour?.risk === "unknown" ? ["No verdict", "wind"] : [`${value ?? "—"} kn ${hour?.direction ?? ""}`, "wind"];
+            }} />
+          <Bar dataKey="bar" radius={[3, 3, 0, 0]} isAnimationActive={false} cursor="pointer"
             onClick={(_, index) => setSelected(index === selected ? null : index)}>
-            {hourly.map((hour, index) => (
+            {hours.map((hour, index) => (
               <Cell key={hour.ts} fill={verdictTheme[hour.risk].color}
                 fillOpacity={selected === null ? 0.85 : selected === index ? 1 : 0.35}
                 stroke={selected === index ? verdictTheme[hour.risk].color : undefined} />
@@ -166,7 +124,7 @@ function PaddleTimeline({ hourly, window, title }: { hourly: HourlyRisk[]; windo
       </ResponsiveContainer>
       {picked ? (
         <p className="hour-detail" style={{ "--risk-color": verdictTheme[picked.risk].color } as React.CSSProperties}>
-          <strong>{picked.hourLabel}</strong> · {picked.windKnots} kt {picked.direction} · <span className="hour-risk">{verdictTheme[picked.risk].word}</span> · {feelFor(picked.windKnots)}
+          <strong>{picked.hourLabel}</strong> · {picked.windKnots === null ? "wind unavailable" : `${picked.windKnots} kt ${picked.direction ?? ""}`} · <span className="hour-risk">{verdictTheme[picked.risk].word}</span>{picked.windKnots !== null && <> · {feelFor(picked.windKnots)}</>}
         </p>
       ) : (
         <p className="timeline-legend">tap an hour to read the water · dashed lines = caution / no-go wind</p>
@@ -178,8 +136,8 @@ function PaddleTimeline({ hourly, window, title }: { hourly: HourlyRisk[]; windo
 const EBB = "var(--cyan)";
 const FLOOD = "var(--go)";
 
-function CurrentTimeline({ hourly, current, title }: { hourly: HourlyRisk[]; current: CurrentInfo; title?: string }) {
-  const data = hourly.map((h) => ({
+function CurrentTimeline({ hours, current, title }: { hours: HourView[]; current: CurrentNow; title?: string }) {
+  const data = hours.map((h) => ({
     hourLabel: h.hourLabel,
     ebb: h.current != null && h.current < 0 ? h.current : 0,
     flood: h.current != null && h.current > 0 ? h.current : 0,
@@ -207,7 +165,7 @@ function CurrentTimeline({ hourly, current, title }: { hourly: HourlyRisk[]; cur
             formatter={(_v, _n, item) => { const s = (item?.payload as { signed: number | null } | undefined)?.signed; return [s == null ? "—" : `${Math.abs(s).toFixed(2)} kn ${s < 0 ? "ebb" : "flood"}`, "current"]; }} />
           <Area dataKey="flood" type="monotone" stroke={FLOOD} fill={FLOOD} fillOpacity={0.22} isAnimationActive={false} />
           <Area dataKey="ebb" type="monotone" stroke={EBB} fill={EBB} fillOpacity={0.22} isAnimationActive={false} />
-          {current.nowSigned != null && data.length > 0 && (
+          {data.length > 0 && (
             <ReferenceDot x={data[0].hourLabel} y={current.nowSigned} r={4} fill={current.nowSigned < 0 ? EBB : FLOOD} stroke="white" strokeWidth={1.5} />
           )}
         </AreaChart>
@@ -224,7 +182,7 @@ function CurrentTimeline({ hourly, current, title }: { hourly: HourlyRisk[]; cur
   );
 }
 
-function CardReply({ card, verdict, hourly, window, windowLabel, current, onAsk }: { card: ReplyCard; verdict?: Risk | null; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; current?: CurrentInfo | null; onAsk: (q: string) => void }) {
+function CardReply({ card, verdict, hours, best, windowLabel, current, onAsk }: { card: ReplyCard; verdict?: Verdict | null; hours?: HourView[]; best?: BestWindow | null; windowLabel?: string; current?: CurrentNow | null; onAsk: (q: string) => void }) {
   const theme = verdict ? verdictTheme[verdict] : undefined;
   return (
     <div className="reply card-reply" style={{ "--verdict-color": theme?.color } as React.CSSProperties}>
@@ -250,8 +208,8 @@ function CardReply({ card, verdict, hourly, window, windowLabel, current, onAsk 
             </div>
           )}
         </div>
-        {hourly && hourly.length > 0 && <PaddleTimeline hourly={hourly} window={window} title={windowLabel} />}
-        {current && hourly && hourly.some((h) => h.current != null) && <CurrentTimeline hourly={hourly} current={current} title={windowLabel} />}
+        {hours && hours.length > 0 && <PaddleTimeline hours={hours} best={best} title={windowLabel} />}
+        {current && hours && hours.some((h) => h.current != null) && <CurrentTimeline hours={hours} current={current} title={windowLabel} />}
         <p className="guide-note">“{card.note}”</p>
         <div className="action-row">
           {card.action.hccb ? (
@@ -265,14 +223,14 @@ function CardReply({ card, verdict, hourly, window, windowLabel, current, onAsk 
   );
 }
 
-const tripRatingTheme: Record<PaddleTripData["rating"], { color: string; word: string }> = {
+const tripRatingTheme: Record<Trip["rating"], { color: string; word: string }> = {
   calm: { color: "var(--go)", word: "CALM" },
   moderate: { color: "var(--caution)", word: "MODERATE" },
   rough: { color: "var(--nogo)", word: "ROUGH" },
 };
 
-function TripSavedCard({ trip }: { trip: PaddleTripData }) {
-  const theme = tripRatingTheme[trip.rating] ?? { color: "var(--faint)", word: trip.rating.toUpperCase() };
+function TripSavedCard({ trip }: { trip: Trip }) {
+  const theme = tripRatingTheme[trip.rating];
   return (
     <div className="trip-card" style={{ "--risk-color": theme.color } as React.CSSProperties}>
       <div className="trip-head">
@@ -326,14 +284,36 @@ function ComparisonCard({ data }: { data: PaddleComparisonData }) {
   );
 }
 
-function AssistantReply({ text, pending, hourly, window, windowLabel, current, trip, comparison }: { text: string; pending?: boolean; hourly?: HourlyRisk[]; window?: PaddleWindow | null; windowLabel?: string; current?: CurrentInfo | null; trip?: PaddleTripData | null; comparison?: PaddleComparisonData | null }) {
+function RouteReplyCard({ plan, onRoute }: { plan: RoutePlan; onRoute: (p: RoutePlan) => void }) {
+  const theme = verdictTheme[plan.worst];
+  return (
+    <div className="trip-card" style={{ "--risk-color": theme.color } as React.CSSProperties}>
+      <div className="trip-head">
+        <span className="trip-badge">Route plan</span>
+        <span className="trip-rating">{theme.word}</span>
+      </div>
+      <p className="trip-route">{plan.fromName} → {plan.toName}</p>
+      <div className="trip-meta">
+        <span>{plan.distanceNm.toFixed(1)} nm</span>
+        <span>about {plan.durationMin} min</span>
+        {plan.suggestion && <span>leave {clock(plan.suggestion.depart)}</span>}
+      </div>
+      <div className="action-row">
+        <button type="button" className="action-btn" onClick={() => onRoute(plan)}>Show on map</button>
+      </div>
+    </div>
+  );
+}
+
+function AssistantReply({ text, pending, briefing, trip, comparison, route, onRoute }: { text: string; pending?: boolean; briefing?: PaddleBriefingData | null; trip?: Trip | null; comparison?: PaddleComparisonData | null; route?: RoutePlan | null; onRoute: (p: RoutePlan) => void }) {
   const parsed = parseReply(text);
   const theme = !pending && parsed.verdict ? verdictTheme[parsed.verdict] : undefined;
-  const hasChart = !!hourly && hourly.length > 0;
+  const hours = briefing?.hours;
+  const hasChart = !!hours && hours.length > 0;
   const timelines = hasChart && (
     <>
-      <PaddleTimeline hourly={hourly!} window={window} title={windowLabel} />
-      {current && hourly!.some((h) => h.current != null) && <CurrentTimeline hourly={hourly!} current={current} title={windowLabel} />}
+      <PaddleTimeline hours={hours} best={briefing.best} title={briefing.label} />
+      {briefing.currentNow && hours.some((h) => h.current != null) && <CurrentTimeline hours={hours} current={briefing.currentNow} title={briefing.label} />}
     </>
   );
   return (
@@ -357,6 +337,7 @@ function AssistantReply({ text, pending, hourly, window, windowLabel, current, t
           <>
             {trip && <TripSavedCard trip={trip} />}
             {comparison && <ComparisonCard data={comparison} />}
+            {route && <RouteReplyCard plan={route} onRoute={onRoute} />}
             {parsed.headline && <p className="reply-headline">{parsed.headline}</p>}
             {parsed.sections.length > 0
               ? parsed.sections.map((section, index) => (
@@ -375,74 +356,60 @@ function AssistantReply({ text, pending, hourly, window, windowLabel, current, t
 }
 
 // ---- main component -------------------------------------------------------
-export function KayakChat() {
+type Parts = PaddleChatUIMessage["parts"];
+
+const lastData = <T extends PaddleChatUIMessage["parts"][number]["type"]>(parts: Parts, type: T) =>
+  [...parts].reverse().find((part): part is Extract<Parts[number], { type: T }> => part.type === type);
+
+export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute, initialQuestion }: {
+  open: boolean; onClose: () => void; zoneId: ZoneId; mode: Mode; trips: Trip[];
+  onTrip: (t: Trip) => void; onRoute: (p: RoutePlan) => void; initialQuestion?: string | null;
+}) {
   const [input, setInput] = useState("");
-  const [readings, setReadings] = useState<Condition[]>([]);
-  const [briefing, setBriefing] = useState<Briefing | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const transport = useTriggerChatTransport({
-    task: "paddle-agent",
-    accessToken: ({ chatId }) => mintChatAccessToken(chatId),
-    startSession: ({ chatId, clientData }) => startChatSession({ chatId, clientData }),
+  const asked = useRef<string | null>(null);
+  const handlers = useRef({ onTrip, onRoute });
+  handlers.current = { onTrip, onRoute };
+  const transport = useMemo(() => new DefaultChatTransport<PaddleChatUIMessage>({
+    api: "/api/chat",
+    prepareSendMessagesRequest: ({ messages, body }) => ({ body: { ...body, messages: messages.slice(-CONFIG.chat.historyMessages) } }),
+  }), []);
+  const { messages, sendMessage, status, error, stop } = useChat<PaddleChatUIMessage>({
+    transport,
+    onData: (part) => {
+      if (part.type === "data-paddle-trip") handlers.current.onTrip(part.data);
+      else if (part.type === "data-paddle-route") handlers.current.onRoute(part.data);
+    },
   });
-  const { messages, sendMessage, status, error, stop } = useChat<PaddleChatUIMessage>({ transport });
   const loading = status === "submitted" || status === "streaming";
 
-  const refreshSnapshot = async () => {
-    const response = await fetch("/api/conditions", { cache: "no-store" });
-    const data = await response.json();
-    if (response.ok) { setReadings(data.readings); setBriefing(data.briefing); }
-  };
-  useEffect(() => { void refreshSnapshot(); }, []);
   useEffect(() => { if (messages.length) endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages, loading]);
 
   const ask = (question: string) => {
     if (!question.trim() || loading) return;
     setInput("");
-    void sendMessage({ text: question });
+    void sendMessage({ text: question }, { body: { zoneId, mode, trips } });
   };
 
-  const messageText = (parts: typeof messages[number]["parts"]) => parts
+  useEffect(() => {
+    if (open && initialQuestion && asked.current !== initialQuestion) {
+      asked.current = initialQuestion;
+      void sendMessage({ text: initialQuestion }, { body: { zoneId, mode, trips } });
+    }
+  }, [open, initialQuestion, sendMessage, zoneId, mode, trips]);
+
+  if (!open) return null;
+
+  const messageText = (parts: Parts) => parts
     .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
     .map((part) => part.text)
     .join("");
-  const briefingData = (parts: typeof messages[number]["parts"]): PaddleBriefingData | undefined => {
-    const part = [...parts].reverse().find((candidate) => candidate.type === "data-paddle-briefing");
-    return part?.type === "data-paddle-briefing" ? part.data : undefined;
-  };
-  const tripData = (parts: typeof messages[number]["parts"]): PaddleTripData | undefined => {
-    const part = [...parts].reverse().find((candidate) => candidate.type === "data-paddle-trip");
-    return part?.type === "data-paddle-trip" ? part.data : undefined;
-  };
-  const comparisonData = (parts: typeof messages[number]["parts"]): PaddleComparisonData | undefined => {
-    const part = [...parts].reverse().find((candidate) => candidate.type === "data-paddle-comparison");
-    return part?.type === "data-paddle-comparison" ? part.data : undefined;
-  };
-
-  const values = Object.fromEntries(readings.map((reading) => [reading.parameter, reading.value]));
-  const assessment = briefing?.assessment;
-  const verdict = assessment ? verdictTheme[assessment.verdict] : undefined;
 
   return <section className="chat">
-    <div className="verdict-hero" style={{ "--verdict-color": verdict?.color } as React.CSSProperties}>
-      <div className="lamp" />
-      <div className="verdict-copy">
-        <span className="verdict-word">{verdict ? verdict.word : "Reading the river…"}</span>
-        <p>{briefing ? briefing.summary.replace(/^[🟢🟡🔴]\s*(GO|CAUTION|NO-GO)\s*[—–-]?\s*/u, "") : "Connecting to the saved ClickHouse snapshot…"}</p>
-        <div className="verdict-meta">
-          {briefing ? <>Snapshot {briefing.updatedAt} · {readings.length} readings</> : "ClickHouse · connecting"}
-          <button type="button" onClick={() => void refreshSnapshot()}>Refresh</button>
-        </div>
-      </div>
-      {assessment?.opposingWind && <span className="opposing-flag">⚠ wind against the ebb</span>}
+    <div className="prompts">
+      {prompts.map((prompt) => <button key={prompt} onClick={() => ask(prompt)} disabled={loading}>{prompt}</button>)}
+      <button type="button" onClick={onClose}>Close</button>
     </div>
-
-    <div className="gauges">
-      {gaugeSpecs.map((spec) => <Gauge key={spec.key} spec={spec} value={values[spec.key]} risk={assessment?.factors[spec.factor]} />)}
-      <Compass deg={values.wind_dir} />
-    </div>
-
-    <div className="prompts">{prompts.map((prompt) => <button key={prompt} onClick={() => void ask(prompt)} disabled={loading}>{prompt}</button>)}</div>
 
     <div className="messages">
       {messages.length === 0
@@ -452,21 +419,17 @@ export function KayakChat() {
           </div>
         : messages.map((message) => {
             const text = messageText(message.parts);
-            const chart = briefingData(message.parts);
-            const trip = tripData(message.parts);
-            const comparison = comparisonData(message.parts);
             return <div key={message.id} className={`msg ${message.role}`}>
               {message.role === "user"
                 ? <p>{text}</p>
                 : <AssistantReply
                     text={text || "Reading the river…"}
                     pending={loading && message === messages.at(-1)}
-                    hourly={chart?.hourly}
-                    window={chart?.window}
-                    windowLabel={chart?.label}
-                    current={chart?.current}
-                    trip={trip}
-                    comparison={comparison}
+                    briefing={lastData(message.parts, "data-paddle-briefing")?.data}
+                    trip={lastData(message.parts, "data-paddle-trip")?.data}
+                    comparison={lastData(message.parts, "data-paddle-comparison")?.data}
+                    route={lastData(message.parts, "data-paddle-route")?.data}
+                    onRoute={onRoute}
                   />}
             </div>;
           })}
@@ -474,7 +437,7 @@ export function KayakChat() {
       <div ref={endRef} />
     </div>
 
-    <form onSubmit={(event) => { event.preventDefault(); void ask(input); }}>
+    <form onSubmit={(event) => { event.preventDefault(); ask(input); }}>
       <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask Paddle Agent about your paddle…" />
       {loading
         ? <button className="send" type="button" onClick={() => void stop()}>Stop</button>
