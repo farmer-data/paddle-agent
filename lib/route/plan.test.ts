@@ -63,4 +63,18 @@ describe("planRoute", () => {
     expect(p.segments.every((s) => s.risk === "unknown")).toBe(true);
     expect(summarizeRoute(p)).not.toContain("\n");
   });
+  it("never suggests a departure for a route truncated by the 8 h cap, and never calls it safe", () => {
+    const p = planRoute({ fromId: "dyckman-street", toId: "brooklyn-bridge-park", depart: "2026-10-26 13:00", outAndBack: true }, calm(), "beginner", NOW);
+    expect(p.warnings).toContain("Too long for one outing");
+    expect(p.suggestion).toBeNull();
+    expect(p.worst).not.toBe("safe");
+  });
+  it("throws when start and destination are the same place", () => {
+    expect(() => planRoute({ fromId: "pier-40", toId: "pier-40", depart: "2026-10-26 13:00" }, calm(), "beginner", NOW)).toThrow("Start and destination are the same place");
+  });
+  it("blocks Hunter's Point South to Hallets Cove via Hell Gate edges, not only the endpoint zone", () => {
+    const p = planRoute({ fromId: "hunters-point-south", toId: "hallets-cove", depart: "2026-10-26 13:00" }, calm(), "beginner", NOW);
+    expect(p.blocked).toBe("hell-gate");
+    expect(p.segments.some((s) => s.zoneId === "hell-gate")).toBe(true);
+  });
 });

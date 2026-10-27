@@ -50,6 +50,7 @@ function plan(req: RouteRequest, outlooks: Record<ZoneId, ZoneOutlook>, mode: Mo
   const from = placeOf(req.fromId), to = placeOf(req.toId);
   const { path, blocked } = chooseRoute(from, to, mode);
   if (!path) throw new Error(`No water route from ${from.name} to ${to.name}`);
+  if (!path.edges.length) throw new Error("Start and destination are the same place");
   const out = legsOf(path.nodes, path.edges);
   const back = req.outAndBack ? legsOf([...path.nodes].reverse(), [...path.edges].reverse()) : [];
 
@@ -103,10 +104,12 @@ function plan(req: RouteRequest, outlooks: Record<ZoneId, ZoneOutlook>, mode: Mo
     walk(back);
   }
   if (tooLong) warn(TOO_LONG);
+  // The unwalked remainder was never assessed, so a capped plan can't read better than unknown.
+  const worst = worstOf([...segments.map((s) => s.risk), ...(tooLong ? (["unknown"] as Verdict[]) : [])]);
 
   return {
     request: req, fromName: from.name, toName: to.name, distanceNm, durationMin: Math.round(t - start), eta: wallStamp(Math.round(t)),
-    worst: worstOf(segments.map((s) => s.risk)), segments, blocked, warnings, caveat: CAVEAT,
+    worst, segments, blocked, warnings, caveat: CAVEAT,
   };
 }
 
@@ -123,7 +126,7 @@ function suggest(req: RouteRequest, base: Omit<RoutePlan, "suggestion">, outlook
   for (let d = (Math.floor(nowMin / departureStepMin) + 1) * departureStepMin; d <= sunset; d += departureStepMin) {
     const depart = wallStamp(d);
     const p = depart === req.depart ? base : plan({ ...req, depart }, outlooks, mode);
-    if (wallMinutes(p.eta) > sunset || p.segments.some((s) => s.risk === "danger" || s.risk === "unknown")) continue;
+    if (p.warnings.includes(TOO_LONG) || wallMinutes(p.eta) > sunset || p.segments.some((s) => s.risk === "danger" || s.risk === "unknown")) continue;
     const allGreen = p.segments.every((s) => s.risk === "safe");
     const better = !best || (allGreen && !best.allGreen) || (allGreen === best.allGreen && p.durationMin < best.durationMin);
     if (better) best = { depart, durationMin: p.durationMin, allGreen };
