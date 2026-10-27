@@ -5,7 +5,7 @@ import { hourKey, hourLabel, nyParts, nyStamp, nyWallToDate, sunTimes, wallMinut
 import { assessHour, cardinal, type SourceId, type Verdict } from "./verdict";
 import { zoneById, type ZoneId } from "./zones";
 
-export type ZoneInputs = { zoneId: ZoneId; wind: { periods: WindPeriod[]; updatedAt: string } | null; current: CurrentPoint[] | null; alerts: Alert[] | null };
+export type ZoneInputs = { zoneId: ZoneId; wind: { periods: WindPeriod[]; updatedAt: string; updateTime: string | null } | null; current: CurrentPoint[] | null; alerts: Alert[] | null; alertsUpdatedAt: string | null };
 export type OutlookInputs = { generatedAt: string; zones: ZoneInputs[]; discharge: { cfs: number; at: string } | null; water: { f: number; at: string } | null; rain48hIn: number | null };
 export type HourView = {
   key: string; ts: string; hourLabel: string;
@@ -104,13 +104,21 @@ const captionFor = (signed: number) =>
 
 export function buildZoneOutlook(inputs: OutlookInputs, zoneId: ZoneId, mode: Mode, now: Date, from?: Date): ZoneOutlook {
   const zone = zoneById(zoneId);
-  const zi = inputs.zones.find((z) => z.zoneId === zoneId) ?? { zoneId, wind: null, current: null, alerts: null };
+  const zi = inputs.zones.find((z) => z.zoneId === zoneId) ?? { zoneId, wind: null, current: null, alerts: null, alertsUpdatedAt: null };
 
-  const windAgeMs = zi.wind ? now.getTime() - Date.parse(zi.wind.updatedAt) : NaN;
   // Fail closed: unparseable or future-dated (beyond 5 min of clock skew) timestamps are unusable.
-  const windStale = !(windAgeMs >= -300_000 && windAgeMs <= CONFIG.maxAge.forecastHours * 3_600_000);
+  const within = (iso: string | null | undefined, maxMs: number) => {
+    const age = iso ? now.getTime() - Date.parse(iso) : NaN;
+    return age >= -300_000 && age <= maxMs;
+  };
+  // generatedAt (when NWS served it) catches a stale cache; updateTime (when NWS last revised the grid) catches a frozen forecast.
+  const windStale = !zi.wind || !within(zi.wind.updatedAt, CONFIG.maxAge.forecastHours * 3_600_000) || !within(zi.wind.updateTime, CONFIG.maxAge.forecastUpdateHours * 3_600_000);
+  const alertList = zi.alerts !== null && within(zi.alertsUpdatedAt, CONFIG.maxAge.alertsMin * 60_000) ? zi.alerts : null;
+  // An alert applies until it ends; one whose end can't be read applies to every hour.
+  const alertActive = (a: { endsAt: string | null }, atMs: number) => a.endsAt === null || Number.isNaN(Date.parse(a.endsAt)) || atMs < Date.parse(a.endsAt);
   const windByKey = new Map<string, WindPeriod>();
-  for (const p of windStale ? [] : zi.wind!.periods) if (!windByKey.has(hourKey(p.ts))) windByKey.set(hourKey(p.ts), p);
+  // A period without a readable direction counts as wind missing for its hour only.
+  for (const p of windStale ? [] : zi.wind!.periods) if (p.fromDeg !== null && !windByKey.has(hourKey(p.ts))) windByKey.set(hourKey(p.ts), p);
   const currentByKey = new Map<string, CurrentPoint>();
   for (const p of zi.current ?? []) if (p.ts.slice(14, 16) === "00" && !currentByKey.has(hourKey(p.ts))) currentByKey.set(hourKey(p.ts), p);
   const discharge = inputs.discharge && fresh(inputs.discharge.at, now) ? inputs.discharge.cfs : null;
@@ -131,7 +139,7 @@ export function buildZoneOutlook(inputs: OutlookInputs, zoneId: ZoneId, mode: Mo
       const daylight = wall >= wallMinutes(sun.sunrise) && wall + 60 <= wallMinutes(sun.sunset);
       const wind = windByKey.get(key);
       const cur = currentByKey.get(key);
-      const active = zi.alerts === null ? null : zi.alerts.filter((a) => a.endsAt === null || t < Date.parse(a.endsAt)).map((a) => a.event);
+      const active = alertList === null ? null : alertList.filter((a) => alertActive(a, t)).map((a) => a.event);
       const a = assessHour({
         windKnots: wind?.windKnots ?? null, windFromDeg: wind?.fromDeg ?? null,
         currentSigned: cur?.signed ?? null, currentTowardDeg: cur?.towardDeg ?? null,
@@ -139,7 +147,7 @@ export function buildZoneOutlook(inputs: OutlookInputs, zoneId: ZoneId, mode: Mo
       }, zone, mode);
       out.push({
         key, ts: `${key}:00`, hourLabel: hourLabel(Number(key.slice(11))),
-        windKnots: wind?.windKnots ?? null, windFromDeg: wind?.fromDeg ?? null, direction: wind ? wind.direction || cardinal(wind.fromDeg) : null,
+        windKnots: wind?.windKnots ?? null, windFromDeg: wind?.fromDeg ?? null, direction: wind ? wind.direction || cardinal(wind.fromDeg!) : null,
         current: cur?.signed ?? null, currentTowardDeg: cur?.towardDeg ?? null,
         risk: a.verdict, opposing: a.opposing, daylight, missing: a.missing, reasons: a.reasons,
       });
@@ -172,7 +180,7 @@ export function buildZoneOutlook(inputs: OutlookInputs, zoneId: ZoneId, mode: Mo
     zoneId, zoneName: zone.name, mode, hours, strip, best: bestWindow(strip.hours), currentNow,
     gear: gearLine(inputs.water, now),
     rainBadge: inputs.rain48hIn !== null && inputs.rain48hIn >= CONFIG.rainBadgeInches48h ? RAIN_BADGE : null,
-    alerts: [...new Set((zi.alerts ?? []).filter((a) => a.endsAt === null || now.getTime() < Date.parse(a.endsAt)).map((a) => a.event))],
+    alerts: [...new Set((alertList ?? []).filter((a) => alertActive(a, now.getTime())).map((a) => a.event))],
     waterTempF: waterFresh?.f ?? null, sun, unavailable, updatedAt: inputs.generatedAt,
   };
 }

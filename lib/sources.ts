@@ -8,13 +8,17 @@ const NOAA = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
 export const DIRECTION_DEGREES: Record<string, number> = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 };
 
 export type CurrentPoint = { ts: string; signed: number; towardDeg: number };
-export type WindPeriod = { ts: string; windKnots: number; fromDeg: number; direction: string };
-export type Alert = { event: string; endsAt: string | null };
+// fromDeg is null when NWS gave no usable direction for a non-calm period: that hour's wind counts as missing.
+export type WindPeriod = { ts: string; windKnots: number; fromDeg: number | null; direction: string };
+export type Alert = { id?: string; event: string; endsAt: string | null };
+export type AlertsResult = { alerts: Alert[]; updatedAt: string };
+export type HourlyWind = { periods: WindPeriod[]; updatedAt: string; updateTime: string | null };
 
 const HEADERS = { "User-Agent": "PaddleAgent/0.2" };
 
-async function getJson(url: string | URL, revalidate: number): Promise<any> {
-  const res = await fetch(url, { headers: HEADERS, next: { revalidate } });
+// "no-store" for sources whose age is checked and whose stale cached body would be served first (alerts, observations).
+async function getJson(url: string | URL, revalidate: number | "no-store"): Promise<any> {
+  const res = await fetch(url, revalidate === "no-store" ? { headers: HEADERS, cache: "no-store" } : { headers: HEADERS, next: { revalidate } });
   if (!res.ok) throw new Error(`${new URL(String(url)).host} responded ${res.status}`);
   return res.json();
 }
@@ -25,7 +29,7 @@ const noaaUrl = (params: Record<string, string>) => {
   return url;
 };
 
-export async function fetchHourlyWind(p: LonLat): Promise<{ periods: WindPeriod[]; updatedAt: string }> {
+export async function fetchHourlyWind(p: LonLat): Promise<HourlyWind> {
   const point = await getJson(`https://api.weather.gov/points/${p[1]},${p[0]}`, 86400);
   const hourlyUrl = point?.properties?.forecastHourly;
   if (typeof hourlyUrl !== "string") throw new Error("NWS points: no forecastHourly");
@@ -34,11 +38,16 @@ export async function fetchHourlyWind(p: LonLat): Promise<{ periods: WindPeriod[
   if (!Array.isArray(raw)) throw new Error("NWS hourly: no periods");
   const periods = raw.map((x: any): WindPeriod => {
     const mph = Math.max(...(String(x.windSpeed).match(/\d+(?:\.\d+)?/g) ?? []).map(Number));
-    const fromDeg = DIRECTION_DEGREES[x.windDirection];
-    if (!Number.isFinite(mph) || fromDeg === undefined) throw new Error("NWS hourly: unreadable wind");
-    return { ts: x.startTime, windKnots: Math.round(mph * 0.868976), fromDeg, direction: x.windDirection };
+    if (!Number.isFinite(mph)) throw new Error("NWS hourly: unreadable wind");
+    // Calm (0 mph) with no direction: 0 kn cannot raise any band or oppose a current, so a placeholder bearing is safe.
+    // Any other period without a readable direction gets null and counts as wind missing for that hour only.
+    const known = DIRECTION_DEGREES[x.windDirection];
+    const fromDeg = known !== undefined ? known : mph === 0 ? 0 : null;
+    // Knots stay unrounded: 14 mph (12.17 kn) must still read as over a 12 kn threshold. Round for display only.
+    return { ts: x.startTime, windKnots: mph * 0.868976, fromDeg, direction: typeof x.windDirection === "string" ? x.windDirection : "" };
   });
-  return { periods, updatedAt: String(forecast.properties.generatedAt ?? forecast.properties.updateTime) };
+  const props = forecast.properties;
+  return { periods, updatedAt: String(props.generatedAt ?? props.updateTime), updateTime: typeof props.updateTime === "string" ? props.updateTime : null };
 }
 
 export async function fetchCurrentSeries(station: string, date: string): Promise<CurrentPoint[]> {
@@ -58,7 +67,7 @@ export async function fetchCurrentSeries(station: string, date: string): Promise
 export async function fetchDischarge(): Promise<{ cfs: number; at: string }> {
   const url = new URL("https://waterservices.usgs.gov/nwis/iv/");
   url.search = new URLSearchParams({ format: "json", sites: "01335754", parameterCd: "00060", siteStatus: "all" }).toString();
-  const json = await getJson(url, 900);
+  const json = await getJson(url, "no-store");
   const values = json?.value?.timeSeries?.[0]?.values?.[0]?.value;
   const last = Array.isArray(values) ? values[values.length - 1] : undefined;
   const cfs = Number(last?.value);
@@ -67,18 +76,30 @@ export async function fetchDischarge(): Promise<{ cfs: number; at: string }> {
 }
 
 export async function fetchWaterTemp(): Promise<{ f: number; at: string }> {
-  const json = await getJson(noaaUrl({ product: "water_temperature", station: "8518750", date: "latest" }), 1800);
+  const json = await getJson(noaaUrl({ product: "water_temperature", station: "8518750", date: "latest" }), "no-store");
   const item = json?.data?.[0];
   const f = Number(item?.v);
   if (!item || item.v === "" || !Number.isFinite(f)) throw new Error("NOAA water temperature: no data");
   return { f, at: item.t };
 }
 
-export async function fetchAlerts(p: LonLat): Promise<Alert[]> {
-  const json = await getJson(`https://api.weather.gov/alerts/active?point=${p[1]},${p[0]}`, 300);
+async function getAlerts(url: string): Promise<AlertsResult> {
+  const json = await getJson(url, "no-store");
   if (!Array.isArray(json?.features)) throw new Error("NWS alerts: malformed payload");
-  return json.features.map((f: any): Alert => ({ event: f.properties.event, endsAt: f.properties.ends ?? f.properties.expires ?? null }));
+  const updated = json.updated;
+  return {
+    // The collection's own timestamp is what freshness is judged on; fall back to the fetch time if NWS omits it.
+    updatedAt: typeof updated === "string" && updated !== "" ? updated : new Date().toISOString(),
+    // `ends` is when the event ends; `expires` is only when the message lapses, so it is deliberately not used.
+    alerts: json.features.map((f: any): Alert => ({ id: f.id ?? f.properties?.id, event: f.properties.event, endsAt: f.properties.ends ?? null })),
+  };
 }
+
+// Land-based alerts (thunderstorms and the like) for the point. The zone centres lie outside every marine polygon.
+export const fetchAlerts = (p: LonLat) => getAlerts(`https://api.weather.gov/alerts/active?point=${p[1]},${p[0]}`);
+
+// Marine alerts (Small Craft Advisory, Gale Warning…) for an NWS marine zone such as ANZ338.
+export const fetchMarineAlerts = (nwsZone: string) => getAlerts(`https://api.weather.gov/alerts/active?zone=${encodeURIComponent(nwsZone)}`);
 
 export async function fetchRain48h(now: Date): Promise<number> {
   const url = new URL("https://api.open-meteo.com/v1/forecast");

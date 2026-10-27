@@ -38,6 +38,43 @@ describe("buildZoneOutlook", () => {
       expect(o.unavailable).toContain("Couldn't reach NWS wind forecast");
     }
   });
+  it("treats stale, unparseable or future-dated alerts as unknown (no green)", () => {
+    for (const alertsUpdatedAt of ["2026-10-26T15:30:00Z", "garbage", "2026-10-26T17:00:00Z"]) {
+      const o = buildZoneOutlook(inputs({ alertsUpdatedAt }), "lower-hudson", "experienced", NOW);
+      expect(o.hours.every((x) => x.risk !== "safe" && x.missing.includes("alerts"))).toBe(true);
+      expect(o.unavailable).toContain("Couldn't reach NWS marine warnings");
+    }
+  });
+  it("uses fresh alerts as before", () => {
+    const o = buildZoneOutlook(inputs({ alertsUpdatedAt: "2026-10-26T15:45:00Z" }), "lower-hudson", "experienced", NOW);
+    expect(o.hours[0].risk).toBe("safe"); expect(o.unavailable).toEqual([]);
+  });
+  it("treats wind as missing when the forecast was last updated over 24 h ago, even if generatedAt is fresh", () => {
+    const o = buildZoneOutlook(inputs({ forecastUpdateTime: "2026-10-25T10:00:00Z" }), "lower-hudson", "beginner", NOW);
+    expect(o.hours.every((x) => x.missing.includes("wind"))).toBe(true);
+    expect(o.unavailable).toContain("Couldn't reach NWS wind forecast");
+    const ok = buildZoneOutlook(inputs({ forecastUpdateTime: "2026-10-25T18:00:00Z" }), "lower-hudson", "beginner", NOW);
+    expect(ok.hours[0].risk).toBe("safe");
+    const none = inputs(); none.zones.forEach((z) => (z.wind!.updateTime = null));
+    expect(buildZoneOutlook(none, "lower-hudson", "beginner", NOW).hours[0].missing).toContain("wind");
+  });
+  it("applies an alert whose end time can't be read to every hour (fails closed)", () => {
+    const i = inputs(); i.zones.find((z) => z.zoneId === "lower-hudson")!.alerts = [{ event: "Gale Warning", endsAt: "not a date" }];
+    const o = buildZoneOutlook(i, "lower-hudson", "experienced", NOW);
+    expect(o.hours.every((x) => x.risk === "danger")).toBe(true);
+    expect(o.alerts).toEqual(["Gale Warning"]);
+  });
+  it("matches Small Craft Advisory variants", () => {
+    const i = inputs(); i.zones.find((z) => z.zoneId === "lower-hudson")!.alerts = [{ event: "Small Craft Advisory for Hazardous Seas", endsAt: null }];
+    expect(buildZoneOutlook(i, "lower-hudson", "experienced", NOW).hours[0].risk).toBe("danger");
+  });
+  it("treats a wind period with no direction as wind missing for that hour only", () => {
+    const i = inputs(); const z = i.zones.find((x) => x.zoneId === "lower-hudson")!;
+    z.wind!.periods = z.wind!.periods.map((p) => (p.ts.startsWith("2026-10-26T13") ? { ...p, fromDeg: null } : p));
+    const o = buildZoneOutlook(i, "lower-hudson", "beginner", NOW);
+    expect(o.hours.find((x) => x.key === "2026-10-26 13")).toMatchObject({ risk: "unknown", windKnots: null });
+    expect(o.hours.find((x) => x.key === "2026-10-26 14")!.risk).toBe("safe");
+  });
   it("survives the DST fall-back hour without duplicate keys", () => {
     const o = buildZoneOutlook(inputs({ from: "2026-10-31" }), "lower-hudson", "beginner", new Date("2026-11-01T03:00:00Z"));
     expect(new Set(o.hours.map((x) => x.key)).size).toBe(o.hours.length);
