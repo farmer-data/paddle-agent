@@ -1,7 +1,8 @@
 // Browser-safe: no server-only imports.
 import { bestWindow, type ZoneOutlook } from "./outlook";
-import type { Trip } from "./trips";
+import type { RequestTrip } from "./trips";
 import type { TargetWindow } from "./when";
+import { PLACES, zoneById } from "./zones";
 
 export type ForecastSummary = {
   available: boolean;
@@ -25,12 +26,15 @@ const median = (xs: number[]) => {
 };
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
-export function roughTripStats(trips: Trip[]) {
+// The request carries no route text, so a trip is labelled by its launch or, failing that, its zone.
+const tripLabel = (t: RequestTrip) => PLACES.find((p) => p.id === t.placeId)?.name ?? zoneById(t.zoneId).name;
+
+export function roughTripStats(trips: RequestTrip[]) {
   const rows = trips
     .filter((t) => t.rating === "rough" && t.snapshot)
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
     .slice(0, 8)
-    .map((t) => ({ trip_id: t.tripId, route: t.route, started_at: t.startedAt, wind: t.snapshot!.windKnots, current: t.snapshot!.currentKnots }));
+    .map((t) => ({ trip_id: t.tripId, route: tripLabel(t), started_at: t.startedAt, wind: t.snapshot!.windKnots, current: t.snapshot!.currentKnots }));
   const winds = rows.map((r) => r.wind), currents = rows.map((r) => r.current);
   return {
     stats: { rough_trips: rows.length, median_wind: round(median(winds)), avg_wind: round(avg(winds)), median_current: round(median(currents), 2), avg_current: round(avg(currents), 2) },

@@ -8,7 +8,7 @@ import { findPlace } from "../route/graph";
 import { planRoute, summarizeRoute } from "../route/plan";
 import { nyParts, nyStamp, nyWallToDate } from "../time";
 import { tripSnapshot } from "../trip-snapshot";
-import type { Trip } from "../trips";
+import type { RequestTrip, Trip } from "../trips";
 import { resolveWindow } from "../when";
 import { PLACES, ZONES, zoneById, type ZoneId } from "../zones";
 import type { PaddleBriefingData, PaddleDataPart } from "./types";
@@ -17,7 +17,7 @@ export type PaddleToolContext = {
   write: (part: PaddleDataPart) => void;
   zoneId: ZoneId;
   mode: Mode;
-  trips: Trip[];
+  trips: RequestTrip[];
   inputs: OutlookInputs;
   now: Date;
   loadInputs: (dates: string[]) => Promise<OutlookInputs>;

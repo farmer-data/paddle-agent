@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Area, AreaChart, Bar, BarChart, Cell, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { fitHistory } from "@/lib/chat-history";
 import type { PaddleBriefingData, PaddleChatUIMessage, PaddleComparisonData } from "@/lib/agent/types";
 import { CONFIG, type Mode } from "@/lib/config";
 import type { BestWindow, CurrentNow, HourView } from "@/lib/outlook";
 import type { RoutePlan } from "@/lib/route/plan";
-import type { Trip } from "@/lib/trips";
+import { toRequestTrip, type Trip } from "@/lib/trips";
 import type { Verdict } from "@/lib/verdict";
 import type { ZoneId } from "@/lib/zones";
 
@@ -321,7 +322,7 @@ export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute,
   handlers.current = { onTrip, onRoute };
   const transport = useMemo(() => new DefaultChatTransport<PaddleChatUIMessage>({
     api: "/api/chat",
-    prepareSendMessagesRequest: ({ messages, body }) => ({ body: { ...body, messages: messages.slice(-CONFIG.chat.historyMessages) } }),
+    prepareSendMessagesRequest: ({ messages, body }) => ({ body: { ...body, messages: fitHistory(messages) } }),
   }), []);
   const { messages, sendMessage, status, error, stop } = useChat<PaddleChatUIMessage>({
     transport,
@@ -331,13 +332,14 @@ export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute,
     },
   });
   const loading = status === "submitted" || status === "streaming";
+  const tooLong = input.length > CONFIG.chat.maxMessageChars;
 
   useEffect(() => { if (messages.length) endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages, loading]);
 
   const ask = (question: string) => {
-    if (!question.trim() || loading) return;
+    if (!question.trim() || loading || question.length > CONFIG.chat.maxMessageChars) return;
     setInput("");
-    void sendMessage({ text: question }, { body: { zoneId, mode, trips } });
+    void sendMessage({ text: question }, { body: { zoneId, mode, trips: trips.map(toRequestTrip) } });
   };
 
   useEffect(() => { if (!open) asked.current = null; }, [open]);
@@ -345,7 +347,7 @@ export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute,
   useEffect(() => {
     if (open && !loading && initialQuestion && asked.current !== initialQuestion) {
       asked.current = initialQuestion;
-      void sendMessage({ text: initialQuestion }, { body: { zoneId, mode, trips } });
+      void sendMessage({ text: initialQuestion }, { body: { zoneId, mode, trips: trips.map(toRequestTrip) } });
     }
   }, [open, loading, initialQuestion, sendMessage, zoneId, mode, trips]);
 
@@ -393,10 +395,11 @@ export function ChatSheet({ open, onClose, zoneId, mode, trips, onTrip, onRoute,
     </div>
 
     <form onSubmit={(event) => { event.preventDefault(); ask(input); }}>
-      <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask Paddle Agent about your paddle…" />
+      <input value={input} maxLength={CONFIG.chat.maxMessageChars} onChange={(event) => setInput(event.target.value)} placeholder="Ask Paddle Agent about your paddle…" />
       {loading
         ? <button className="send" type="button" onClick={() => void stop()}>Stop</button>
-        : <button className="send" disabled={!input.trim()}>Send</button>}
+        : <button className="send" disabled={!input.trim() || tooLong}>Send</button>}
+      {tooLong && <p className="input-hint" role="status">Keep questions under {CONFIG.chat.maxMessageChars} characters.</p>}
     </form>
   </section>;
 }

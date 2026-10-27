@@ -27,6 +27,11 @@ const tripSchema = z.object({
 });
 export const tripsSchema = z.array(tripSchema).max(MAX_TRIPS);
 
+// What the chat request carries: the snapshot-relevant fields only. Route text and notes stay in the browser.
+export type RequestTrip = Pick<Trip, "tripId" | "zoneId" | "placeId" | "rating" | "startedAt" | "mode" | "snapshot">;
+export const requestTripsSchema = z.array(tripSchema.pick({ tripId: true, zoneId: true, placeId: true, rating: true, startedAt: true, mode: true, snapshot: true })).max(MAX_TRIPS);
+export const toRequestTrip = (t: Trip): RequestTrip => ({ tripId: t.tripId, zoneId: t.zoneId, placeId: t.placeId, rating: t.rating, startedAt: t.startedAt, mode: t.mode, snapshot: t.snapshot });
+
 const defaultStorage = (): Storage | null => {
   try { return typeof localStorage === "undefined" ? null : localStorage; } catch { return null; }
 };

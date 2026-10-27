@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deleteTrip, loadPref, loadTrips, saveTrip, savePref, TRIPS_KEY, ZONE_KEY, tripsSchema, type Trip } from "./trips";
+import { deleteTrip, loadPref, loadTrips, saveTrip, savePref, TRIPS_KEY, ZONE_KEY, tripsSchema, requestTripsSchema, toRequestTrip, type Trip } from "./trips";
 import { isZoneId } from "./zones";
 
 const fakeStorage = (init: Record<string, string>) => {
@@ -35,5 +35,11 @@ describe("trips storage", () => {
   });
   it("schema rejects more than 50 trips", () => {
     expect(tripsSchema.safeParse(Array.from({ length: 51 }, (_, i) => trip(`t${i}`))).success).toBe(false);
+  });
+  it("sends only the snapshot-relevant trip fields to the server", () => {
+    const sent = toRequestTrip({ ...trip("a"), route: "my secret spot", notes: "private notes" });
+    expect(Object.keys(sent).sort()).toEqual(["mode", "placeId", "rating", "snapshot", "startedAt", "tripId", "zoneId"]);
+    expect(requestTripsSchema.safeParse([sent]).success).toBe(true);
+    expect(JSON.stringify(sent)).not.toMatch(/secret|private/);
   });
 });

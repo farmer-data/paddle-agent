@@ -342,7 +342,8 @@ main.home { max-width: 1240px; margin: 0 auto; padding: 14px 16px 120px; }
 @keyframes hop { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(-4px); opacity: 1; } }
 
 /* composer ----------------------------------------------------------- */
-form { display: flex; gap: 9px; margin-top: 10px; }
+form { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
+.input-hint { flex-basis: 100%; margin: 0; color: var(--nogo); font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.04em; }
 input {
   flex: 1; padding: 13px 17px;
   border: 1px solid var(--line); border-radius: 12px;
