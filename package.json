@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/copy-maplibre-worker.mjs",
+    "predev": "node scripts/copy-maplibre-worker.mjs",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
@@ -15,6 +18,7 @@
     "@ai-sdk/openai-compatible": "2.0.62",
     "@ai-sdk/react": "^3.0.0",
     "ai": "^6.0.0",
+    "maplibre-gl": "^6.16.0",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

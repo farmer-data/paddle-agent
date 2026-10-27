@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Mode } from "@/lib/config";
-import { buildZoneOutlook, type OutlookInputs } from "@/lib/outlook";
+import { buildZoneOutlook, type OutlookInputs, type ZoneOutlook } from "@/lib/outlook";
 import type { RoutePlan } from "@/lib/route/plan";
 import { deleteTrip, loadPref, loadTrips, MODE_KEY, saveTrip, savePref, ZONE_KEY, type Trip } from "@/lib/trips";
-import { DEFAULT_ZONE, isZoneId, nearestZone, type ZoneId } from "@/lib/zones";
+import { DEFAULT_ZONE, isZoneId, nearestZone, ZONES, type ZoneId } from "@/lib/zones";
 import { ChatSheet } from "./chat-sheet";
 import { HourStrip } from "./hour-strip";
+import { MapSheet, PaddleMapLazy } from "./map-sheet";
 import { TopBar } from "./top-bar";
 import { TripsSheet } from "./trips-sheet";
 import { FactorChips, VerdictCard } from "./verdict-card";
@@ -26,7 +27,7 @@ export function Home() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [sheet, setSheet] = useState<Sheet>(null);
-  // Consumed by the map sheet (Tasks 13-14).
+  // Passed to the map; drawn by Task 14.
   const [activeRoute, setActiveRoute] = useState<RoutePlan | null>(null);
   const [minute, setMinute] = useState(0);
   const [locNote, setLocNote] = useState<string | null>(null);
@@ -77,16 +78,18 @@ export function Home() {
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
   }, [load]);
 
-  const outlook = useMemo(
-    () => (inputs && minute ? buildZoneOutlook(inputs, zoneId, mode, new Date(minute)) : null),
-    [inputs, zoneId, mode, minute],
+  // All six zones, for the map; the home card shows the selected one.
+  const outlooks = useMemo(
+    () => (inputs && minute ? (Object.fromEntries(ZONES.map((z) => [z.id, buildZoneOutlook(inputs, z.id, mode, new Date(minute))])) as Record<ZoneId, ZoneOutlook>) : null),
+    [inputs, mode, minute],
   );
+  const outlook = outlooks ? outlooks[zoneId] : null;
   const hour = outlook ? (outlook.hours.find((h) => h.key === selectedKey) ?? outlook.hours[0]) : null;
   const isNow = !!outlook && hour === outlook.hours[0];
   const updatedMinAgo = inputs && minute ? Math.max(0, Math.round((minute - Date.parse(inputs.generatedAt)) / 60_000)) : null;
 
   const changeMode = (m: Mode) => { setMode(m); savePref(MODE_KEY, m); };
-  const changeZone = (z: ZoneId) => { setZoneId(z); setSelectedKey(null); if (noteTimer.current) clearTimeout(noteTimer.current); setLocNote(null); savePref(ZONE_KEY, z); };
+  const changeZone = (z: ZoneId, keepHour = false) => { setZoneId(z); if (!keepHour) setSelectedKey(null); if (noteTimer.current) clearTimeout(noteTimer.current); setLocNote(null); savePref(ZONE_KEY, z); };
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current); }, []);
   const flashNote = (text: string) => {
@@ -117,9 +120,20 @@ export function Home() {
         <div className="home-top">
           <TopBar mode={mode} onMode={changeMode} zoneId={zoneId} onZone={changeZone} onNear={nearMe} updatedMinAgo={updatedMinAgo} note={locNote} />
         </div>
-        <button type="button" className="map-slot home-map" onClick={() => setSheet("map")}>
-          <span>🗺 Open map{activeRoute ? " · route planned" : ""}</span>
-        </button>
+        {outlooks && wide && (
+          <div className="home-map">
+            <MapSheet open outlooks={outlooks} zoneId={zoneId} selectedKey={selectedKey} onSelectKey={setSelectedKey} trips={trips} route={activeRoute}
+              onPickZone={(z) => changeZone(z, true)} onClose={closeSheet} />
+          </div>
+        )}
+        {!wide && (
+          <button type="button" className="map-slot home-map" onClick={() => setSheet("map")} aria-label="Open map">
+            {outlooks && sheet !== "map" && (
+              <PaddleMapLazy outlooks={outlooks} zoneId={zoneId} selectedKey={hour?.key ?? ""} trips={trips} route={activeRoute} interactive={false} />
+            )}
+            <span>🗺 Open map{activeRoute ? " · route planned" : ""}</span>
+          </button>
+        )}
         <div className="home-right">
           {outlook && outlook.alerts.length > 0 && (
             <div className="alert-banner home-alert" role="alert">
@@ -163,6 +177,10 @@ export function Home() {
         <button type="button" className="ask-bar" onClick={() => setSheet("chat")}>💬 Ask the guide…</button>
         <button type="button" className="trips-btn" onClick={() => setSheet("trips")}>My trips{trips.length ? ` (${trips.length})` : ""}</button>
       </nav>
+      {outlooks && !wide && sheet === "map" && (
+        <MapSheet open outlooks={outlooks} zoneId={zoneId} selectedKey={selectedKey} onSelectKey={setSelectedKey} trips={trips} route={activeRoute}
+          onPickZone={(z) => { changeZone(z, true); closeSheet(); }} onClose={closeSheet} />
+      )}
       <TripsSheet open={sheet === "trips"} onClose={closeSheet} trips={trips} onDelete={onDelete} />
     </main>
   );
