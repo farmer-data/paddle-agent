@@ -47,6 +47,13 @@ describe("waterway graph", () => {
       expect(distanceNm(p.lonLat, n.lonLat), p.id).toBeLessThan(0.35);
     }
   });
+  it("puts Hallets Cove on Hell Gate water so routes there use Hell Gate currents", () => {
+    const cove = findPlace("hallets cove")!;
+    expect(zoneAt(node(cove.nodeId).lonLat)).toBe("hell-gate");
+    const r = shortestPath(findPlace("hunters point south")!.nodeId, cove.nodeId, { allowCrossings: false })!;
+    expect(r.edges.filter((e) => e.zoneId === "hell-gate").length).toBeGreaterThanOrEqual(1);
+    expect(EDGES.filter((e) => node(e.a).bank === "brooklyn-queens" && node(e.b).bank === "brooklyn-queens" && e.zoneId === "hell-gate").length).toBeGreaterThanOrEqual(2);
+  });
   it("returns a zero-length path to itself and null for unknown nodes", () => {
     expect(shortestPath("m01", "m01", { allowCrossings: false })).toEqual({ nodes: ["m01"], edges: [] });
     expect(shortestPath("m01", "zz", { allowCrossings: true })).toBeNull();
