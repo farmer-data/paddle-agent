@@ -5,6 +5,7 @@ type FakeClient = {
   connect: ReturnType<typeof vi.fn>;
   incr: ReturnType<typeof vi.fn>;
   expire: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
 };
 
 const clients: FakeClient[] = [];
@@ -15,6 +16,7 @@ const createClient = vi.fn((_opts: unknown) => {
     connect: vi.fn(() => state.connect()),
     incr: vi.fn(() => state.incr()),
     expire: vi.fn(async () => 1),
+    destroy: vi.fn(),
   };
   c.on.mockReturnValue(c);
   clients.push(c);
@@ -124,5 +126,78 @@ describe("redisStore after a dropped connection", () => {
     handler(new Error("ECONNRESET"));
     await store.incr("a", 1);
     expect(createClient).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("redisStore timeouts", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const never = () => new Promise<never>(() => {});
+
+  it("rejects a never-resolving connect after the timeout, destroys the client and builds a new one next call", async () => {
+    const { redisStore, REDIS_OP_TIMEOUT_MS } = await load();
+    const store = redisStore("redis://x");
+    state.connect = never;
+    const result = store.incr("a", 1).then(() => "resolved", (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(REDIS_OP_TIMEOUT_MS - 1);
+    expect(clients[0].destroy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toMatch(/timed out/);
+    expect(clients[0].destroy).toHaveBeenCalledTimes(1);
+    state.connect = () => Promise.resolve();
+    expect(await store.incr("a", 1)).toBe(1);
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects a never-resolving INCR after the timeout and the next call makes a new client", async () => {
+    const { redisStore, REDIS_OP_TIMEOUT_MS } = await load();
+    const store = redisStore("redis://x");
+    state.incr = never;
+    const result = store.incr("a", 1).then(() => "resolved", (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(REDIS_OP_TIMEOUT_MS);
+    expect(await result).toMatch(/timed out/);
+    expect(clients[0].destroy).toHaveBeenCalledTimes(1);
+    state.incr = () => Promise.resolve(1);
+    expect(await store.incr("a", 1)).toBe(1);
+    expect(createClient).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds the EXPIRE step too", async () => {
+    const { redisStore, REDIS_OP_TIMEOUT_MS } = await load();
+    const store = redisStore("redis://x");
+    const first = store.incr("a", 1).then(() => "ok");
+    await first; // establishes the client
+    clients[0].expire.mockImplementation(never);
+    const result = store.incr("b", 1).then(() => "resolved", (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(REDIS_OP_TIMEOUT_MS);
+    expect(await result).toMatch(/timed out/);
+  });
+
+  it("clears its timer on success and on an ordinary failure", async () => {
+    const { redisStore } = await load();
+    const store = redisStore("redis://x");
+    await store.incr("a", 1);
+    expect(vi.getTimerCount()).toBe(0);
+    state.incr = () => Promise.reject(new Error("boom"));
+    await expect(store.incr("a", 1)).rejects.toThrow("boom");
+    expect(vi.getTimerCount()).toBe(0);
+    expect(clients[0].destroy).not.toHaveBeenCalled();
+  });
+
+  it("a timed-out client's later error event neither throws nor evicts the newer client", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { redisStore, REDIS_OP_TIMEOUT_MS } = await load();
+    const store = redisStore("redis://x");
+    state.connect = never;
+    const result = store.incr("a", 1).catch(() => "timed out");
+    await vi.advanceTimersByTimeAsync(REDIS_OP_TIMEOUT_MS);
+    await result;
+    state.connect = () => Promise.resolve();
+    await store.incr("a", 1); // newer client
+    const stale = clients[0].on.mock.calls.find((c) => c[0] === "error")![1] as (e: Error) => void;
+    expect(() => stale(new Error("ECONNRESET"))).not.toThrow();
+    await store.incr("a", 1);
+    expect(createClient).toHaveBeenCalledTimes(2); // the newer client is still the cached one
   });
 });
