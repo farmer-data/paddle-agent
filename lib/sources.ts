@@ -124,7 +124,7 @@ export async function fetchHourlyWind(p: LonLat): Promise<{ periods: WindPeriod[
     if (!Number.isFinite(mph) || fromDeg === undefined) throw new Error("NWS hourly: unreadable wind");
     return { ts: x.startTime, windKnots: Math.round(mph * 0.868976), fromDeg, direction: x.windDirection };
   });
-  return { periods, updatedAt: String(forecast.properties.updateTime) };
+  return { periods, updatedAt: String(forecast.properties.generatedAt ?? forecast.properties.updateTime) };
 }
 
 export async function fetchCurrentSeries(station: string, date: string): Promise<CurrentPoint[]> {
@@ -148,7 +148,7 @@ export async function fetchDischarge(): Promise<{ cfs: number; at: string }> {
   const values = json?.value?.timeSeries?.[0]?.values?.[0]?.value;
   const last = Array.isArray(values) ? values[values.length - 1] : undefined;
   const cfs = Number(last?.value);
-  if (!last || last.value === "" || !Number.isFinite(cfs)) throw new Error("USGS discharge: no data");
+  if (!last || last.value === "" || !Number.isFinite(cfs) || cfs < 0) throw new Error("USGS discharge: no data");
   return { cfs, at: last.dateTime };
 }
 

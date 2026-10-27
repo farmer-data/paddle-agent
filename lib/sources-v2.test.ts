@@ -31,11 +31,20 @@ it("rejects current points with a non-finite speed or heading", async () => {
 });
 it("takes the upper number of an NWS wind range", async () => {
   stubSequence({ properties: { forecastHourly: "https://x/hourly" } },
-    { properties: { updateTime: "2026-10-26T18:20:57+00:00", periods: [{ startTime: "2026-10-26T18:00:00-04:00", windSpeed: "10 to 15 mph", windDirection: "SW" }] } });
-  expect(await fetchHourlyWind([-73.94, 40.78])).toEqual({ updatedAt: "2026-10-26T18:20:57+00:00",
+    { properties: { generatedAt: "2026-10-26T23:50:00+00:00", updateTime: "2026-10-26T18:20:57+00:00", periods: [{ startTime: "2026-10-26T18:00:00-04:00", windSpeed: "10 to 15 mph", windDirection: "SW" }] } });
+  expect(await fetchHourlyWind([-73.94, 40.78])).toEqual({ updatedAt: "2026-10-26T23:50:00+00:00",
     periods: [{ ts: "2026-10-26T18:00:00-04:00", windKnots: 13, fromDeg: 225, direction: "SW" }] });
   expect(String(fetchMock.mock.calls[1][0])).toBe("https://x/hourly");
   expect((fetchMock.mock.calls[0][1] as any).headers["User-Agent"]).toBe("PaddleAgent/0.2");
+});
+it("falls back to updateTime when generatedAt is absent", async () => {
+  stubSequence({ properties: { forecastHourly: "https://x/hourly" } },
+    { properties: { updateTime: "2026-10-26T18:20:57+00:00", periods: [] } });
+  expect((await fetchHourlyWind([-73.94, 40.78])).updatedAt).toBe("2026-10-26T18:20:57+00:00");
+});
+it("rejects USGS missing-data sentinels", async () => {
+  stub({ value: { timeSeries: [{ values: [{ value: [{ value: "-999999", dateTime: "a" }] }] }] } });
+  await expect(fetchDischarge()).rejects.toThrow();
 });
 it("sums the last 48 hours of rain up to the current NY hour", async () => {
   const time = Array.from({ length: 72 }, (_, i) => `2026-10-${String(24 + Math.floor(i / 24)).padStart(2, "0")}T${String(i % 24).padStart(2, "0")}:00`);
